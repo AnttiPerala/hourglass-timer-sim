@@ -1,0 +1,257 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Baked Hourglass Viewer</title>
+<style>
+  :root { --bg:#0b0c10; --text:#e8ecf1; --muted:#9aa3ad; --accent:#4fc3f7; }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px system-ui}
+  header{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:10px;border-bottom:1px solid #20232b}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  label{color:var(--muted)}
+  select,input[type="text"]{background:#11131a;border:1px solid #1f2430;color:var(--text);border-radius:8px;padding:6px 8px}
+  select{min-width:240px}
+  input[type="range"]{width:220px}
+  input[type="color"]{appearance:none;width:34px;height:28px;border:1px solid #2a2f3a;border-radius:6px;background:#11131a;padding:0;cursor:pointer}
+  button{background:#141823;border:1px solid #2a2f3a;color:var(--text);border-radius:10px;padding:6px 10px;cursor:pointer}
+  .wrap{display:grid;place-items:center;height:calc(100vh - 96px)}
+  canvas{background:radial-gradient(1200px 700px at 50% 15%,rgba(255,255,255,.04),transparent 60%),#0b0c10;border:1px solid #1b1f28;border-radius:16px;width:min(900px,98vw);height:calc(min(900px,98vw)*1.1)}
+  .time{min-width:110px;text-align:center;color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar{display:flex;align-items:center;gap:8px}
+  #scrub{width:min(700px, 60vw)}
+</style>
+
+<header>
+  <div class="row">
+    <strong>Baked Hourglass</strong>
+    <label>Variant
+      <select id="variant"><option value="" disabled selected>— loading index —</option></select>
+    </label>
+    <button id="reloadIndex">Reload index</button>
+    <button id="pp">Play</button>
+    <button id="restart">Restart</button>
+    <label>Speed <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1"></label>
+    <label>Color <input id="color" type="color" value="#f48fb1"></label>
+  </div>
+  <div class="row bar">
+    <span class="time" id="time">00:00 / 00:00</span>
+    <input id="scrub" type="range" min="0" max="1" value="0" step="1">
+    <label>URL <input id="url" type="text" placeholder="bakes/hourglass_60s_neck12_c11.1_c21.55_full0.9.json"></label>
+    <button id="loadUrl">Open</button>
+    <label>File <input id="file" type="file" accept=".json"></label>
+  </div>
+</header>
+
+<div class="wrap"><canvas id="cv"></canvas></div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const sel = document.getElementById('variant');
+const btnPP = document.getElementById('pp');
+const btnRestart = document.getElementById('restart');
+const speedEl = document.getElementById('speed');
+const colorEl = document.getElementById('color');
+const scrub = document.getElementById('scrub');
+const timeEl = document.getElementById('time');
+
+let bake=null, data=null, frame=0, playing=false, lastT=performance.now(), speed=1;
+let scrubbing=false, wasPlaying=false;
+let particleColor = (localStorage.getItem('hg_particle_color')||'#f48fb1'); colorEl.value=particleColor;
+
+function fit(){
+  const DPR = Math.max(1, Math.min(2, devicePixelRatio||1));
+  const cssW = Math.min(900, innerWidth*0.98), cssH = cssW*1.1;
+  cv.style.width=cssW+'px'; cv.style.height=cssH+'px';
+  cv.width = Math.round(cssW*DPR); cv.height = Math.round(cssH*DPR);
+  return {DPR, cssW, cssH};
+}
+let view = fit(); addEventListener('resize', ()=>view=fit());
+
+// --- shape helpers ---
+const bez3 = (p0,p1,p2,p3,t)=>{ const u=1-t; return p0*u*u*u + 3*p1*u*u*t + 3*p2*u*t*t + p3*t*t*t; };
+
+function widthAtY(y, meta){
+  const {H, bulb, neck, shape, c1, c2, k} = meta;
+  if (shape === 'cubic' && c1 && c2){
+    if (y <= 0){
+      const t = (y + H) / H;
+      return bez3(bulb, bulb*c1, neck*c2, neck, Math.max(0,Math.min(1,t)));
+    } else {
+      const t = y / H;
+      return bez3(neck, neck*c2, bulb*c1, bulb, Math.max(0,Math.min(1,t)));
+    }
+  }
+  // fallback: old power-curve
+  const tt = Math.min(1, Math.abs(y)/H);
+  return neck + (bulb - neck) * Math.pow(tt, k ?? 1.05);
+}
+
+function drawGlass(ctx, meta, DPR){
+  const {H} = meta;
+  ctx.save();
+  ctx.lineWidth = Math.max(1.5, 2*DPR/2);
+  ctx.strokeStyle = "rgba(255,255,255,0.16)";
+  const steps = 72;
+
+  // left
+  ctx.beginPath();
+  for (let i=0;i<=steps;i++){
+    const t = -H + i*(2*H/steps);
+    const x = -widthAtY(t, meta);
+    (i===0) ? ctx.moveTo(x,t) : ctx.lineTo(x,t);
+  }
+  ctx.stroke();
+
+  // right
+  ctx.beginPath();
+  for (let i=0;i<=steps;i++){
+    const t = -H + i*(2*H/steps);
+    const x =  widthAtY(t, meta);
+    (i===0) ? ctx.moveTo(x,t) : ctx.lineTo(x,t);
+  }
+  ctx.stroke();
+
+  // caps
+  ctx.beginPath();
+  ctx.moveTo(-widthAtY(-H, meta), -H);
+  ctx.lineTo( widthAtY(-H, meta), -H);
+  ctx.moveTo(-widthAtY( H, meta),  H);
+  ctx.lineTo( widthAtY( H, meta),  H);
+  ctx.stroke();
+
+  // neck guide
+  ctx.strokeStyle = "rgba(79,195,247,0.28)";
+  ctx.beginPath(); ctx.moveTo(-meta.neck,0); ctx.lineTo(meta.neck,0); ctx.stroke();
+
+  ctx.restore();
+}
+
+// --- UI/time helpers ---
+function fmtTime(sec){ sec=Math.max(0,Math.round(sec)); const m=(sec/60)|0, s=String(sec%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${s}`; }
+function updateTimeUI(){
+  if(!bake){ timeEl.textContent="00:00 / 00:00"; return; }
+  const cur=frame/bake.meta.fps, total=(bake.meta.frames-1)/bake.meta.fps;
+  timeEl.textContent=`${fmtTime(cur)} / ${fmtTime(total)}`;
+}
+
+// --- loading ---
+async function loadURL(url){
+  const res = await fetch(url);
+  bake = await res.json();
+  const buf = Uint8Array.from(atob(bake.data), c=>c.charCodeAt(0)).buffer;
+  data = new Uint16Array(buf);
+  restart(false); playing=true; btnPP.textContent="Pause";
+}
+async function loadFile(file){
+  const txt = await file.text();
+  bake = JSON.parse(txt);
+  const buf = Uint8Array.from(atob(bake.data), c=>c.charCodeAt(0)).buffer;
+  data = new Uint16Array(buf);
+  restart(false); playing=true; btnPP.textContent="Pause";
+}
+async function loadIndex(){
+  try{
+    const res = await fetch('bakes/index.json',{cache:'no-store'});
+    if(!res.ok) throw new Error(res.statusText);
+    const list = await res.json();
+    sel.innerHTML = "";
+    for(const e of list){
+      const o = document.createElement('option');
+      o.value = e.file; o.textContent = e.label || e.file; sel.appendChild(o);
+    }
+    if(list.length>0) sel.selectedIndex=0;
+  }catch(e){
+    sel.innerHTML = `<option value="" disabled selected>No bakes/index.json found</option>`;
+  }
+}
+
+// --- draw/update loop ---
+function hexToRGBA(hex,a=0.96){ const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex); if(!m) return `rgba(244,143,177,${a})`; const r=parseInt(m[1],16),g=parseInt(m[2],16),b=parseInt(m[3],16); return `rgba(${r},${g},${b},${a})`; }
+
+function draw(){
+  if(!bake) return;
+  const {DPR, cssW, cssH} = view;
+  const {grains, Q, H, bulb, r} = bake.meta;
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  ctx.save(); ctx.translate(cssW/2, cssH/2);
+
+  drawGlass(ctx, bake.meta, DPR);
+
+  ctx.fillStyle = hexToRGBA(particleColor, 0.96);
+  ctx.beginPath();
+  const base = (frame|0)*grains*2;
+  for(let i=0;i<grains;i++){
+    const x = data[base + i*2]/Q - bulb - 5;
+    const y = data[base + i*2 + 1]/Q - H - 5;
+    ctx.moveTo(x+r,y); ctx.arc(x,y,r,0,Math.PI*2);
+  }
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function loop(){
+  requestAnimationFrame(loop);
+  if(!bake) return;
+  const now=performance.now(), dt=(now-lastT)/1000; lastT=now;
+  if(playing && !scrubbing){
+    frame += speed * dt * bake.meta.fps;
+    if(frame >= bake.meta.frames) frame = bake.meta.frames-0.001;
+    scrub.value = String(frame|0);
+    updateTimeUI();
+  }
+  draw();
+}
+
+function restart(keepPlaying=true){
+  if(!bake) return;
+  frame=0; lastT=performance.now();
+  scrub.max = String(bake.meta.frames-1);
+  scrub.value="0";
+  updateTimeUI(); draw();
+  if(keepPlaying){ playing=true; btnPP.textContent="Pause"; }
+}
+
+// --- wires ---
+document.getElementById('reloadIndex').onclick = loadIndex;
+sel.onchange = () => { const v=sel.value; if(v) loadURL(v); };
+btnPP.onclick = () => { playing=!playing; btnPP.textContent = playing?"Pause":"Play"; };
+btnRestart.onclick = () => restart(true);
+speedEl.oninput = e => (speed = +e.target.value);
+document.getElementById('loadUrl').onclick = () => { const u=document.getElementById('url').value.trim(); if(u) loadURL(u); };
+document.getElementById('file').onchange = e => { const f=e.target.files?.[0]; if(f) loadFile(f); };
+
+colorEl.oninput = e => { particleColor = e.target.value; localStorage.setItem('hg_particle_color', particleColor); draw(); };
+
+scrub.addEventListener('pointerdown', ()=>{ scrubbing=true; wasPlaying=playing; playing=false; });
+scrub.addEventListener('pointerup',   ()=>{ scrubbing=false; playing=wasPlaying; });
+scrub.addEventListener('input', ()=>{ if(!bake) return; frame=+scrub.value; updateTimeUI(); draw(); });
+
+// keys
+addEventListener('keydown', e=>{
+  if(e.target.tagName==='INPUT' || e.target.tagName==='SELECT') return;
+  if(e.key===' ') { e.preventDefault(); btnPP.click(); }
+  if(e.key.toLowerCase()==='r'){ e.preventDefault(); btnRestart.click(); }
+});
+
+// query params
+const params = new URLSearchParams(location.search);
+const bakeUrl = params.get('bake'); const indexOverride = params.get('index');
+
+(async ()=>{
+  if(indexOverride){
+    try{
+      const res=await fetch(indexOverride,{cache:'no-store'}); const list=await res.json();
+      sel.innerHTML=""; for(const e of list){ const o=document.createElement('option'); o.value=e.file; o.textContent=e.label||e.file; sel.appendChild(o); }
+    }catch{}
+  }else{
+    await loadIndex();
+  }
+  if(bakeUrl){
+    await loadURL(bakeUrl);
+    const opt=[...sel.options].find(o=>o.value===bakeUrl); if(opt) sel.value=bakeUrl;
+  }
+  loop();
+})();
+</script>
