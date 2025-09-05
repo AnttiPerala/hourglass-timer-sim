@@ -1,466 +1,260 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<meta charset="utf-8">
+<title>Baked Hourglass Viewer</title>
+<style>
+  :root { --bg:#0b0c10; --text:#e8ecf1; --muted:#9aa3ad; --accent:#4fc3f7; }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px system-ui}
+  header{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:10px;border-bottom:1px solid #20232b}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  label{color:var(--muted)}
+  select,input[type="text"]{background:#11131a;border:1px solid #1f2430;color:var(--text);border-radius:8px;padding:6px 8px}
+  select{min-width:240px}
+  input[type="range"]{width:220px}
+  button{background:#141823;border:1px solid #2a2f3a;color:var(--text);border-radius:10px;padding:6px 10px;cursor:pointer}
+  .wrap{display:grid;place-items:center;height:calc(100vh - 96px)}
+  canvas{background:radial-gradient(1200px 700px at 50% 15%,rgba(255,255,255,.04),transparent 60%),#0b0c10;border:1px solid #1b1f28;border-radius:16px;width:min(900px,98vw);height:calc(min(900px,98vw)*1.1)}
+  .time{min-width:110px;text-align:center;color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar{display:flex;align-items:center;gap:8px}
+  #scrub{width:min(700px, 60vw)}
+</style>
 
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hourglass — gated neck, stable timing</title>
-    <style>
-        :root {
-            --bg: #0b0c10;
-            --panel: #11131a;
-            --text: #e8ecf1;
-            --muted: #9aa3ad;
-            --a: #4fc3f7;
-            --b: #f48fb1;
-        }
+<header>
+  <div class="row">
+    <strong>Baked Hourglass</strong>
+    <label>Variant
+      <select id="variant">
+        <option value="" disabled selected>— loading index (bakes/index.json) —</option>
+      </select>
+    </label>
+    <button id="reloadIndex">Reload index</button>
+    <button id="pp">Play</button>
+    <label>Speed <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1"></label>
+  </div>
+  <div class="row bar">
+    <span class="time" id="time">00:00 / 00:00</span>
+    <input id="scrub" type="range" min="0" max="1" value="0" step="1">
+    <label>URL <input id="url" type="text" placeholder="bakes/hourglass_60s_neck16_k1.0_full0.9.json"></label>
+    <button id="loadUrl">Open</button>
+    <label>File <input id="file" type="file" accept=".json"></label>
+  </div>
+</header>
 
-        * {
-            box-sizing: border-box
-        }
+<div class="wrap"><canvas id="cv"></canvas></div>
 
-        html,
-        body {
-            height: 100%;
-            margin: 0;
-            background: var(--bg);
-            color: var(--text);
-            font: 14px/1.45 system-ui, Segoe UI, Roboto, Ubuntu
-        }
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const sel = document.getElementById('variant');
+const btnPP = document.getElementById('pp');
+const speedEl = document.getElementById('speed');
+const scrub = document.getElementById('scrub');
+const timeEl = document.getElementById('time');
 
-        header {
-            display: grid;
-            grid-template-columns: repeat(6, max-content) 1fr;
-            gap: 10px 16px;
-            align-items: center;
-            padding: 10px 16px;
-            border-bottom: 1px solid #20232b
-        }
+let bake=null, data=null, frame=0, playing=false, lastT=performance.now(), speed=1;
+let scrubbing=false, wasPlaying=false;
 
-        h1 {
-            margin: 0 8px 0 0;
-            font-size: 14px;
-            color: var(--muted)
-        }
+function fit(){
+  const DPR = Math.max(1, Math.min(2, devicePixelRatio||1));
+  const cssW = Math.min(900, innerWidth*0.98), cssH = cssW*1.1;
+  cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
+  cv.width = Math.round(cssW * DPR); cv.height = Math.round(cssH * DPR);
+  return { DPR, cssW, cssH };
+}
+let view = fit(); addEventListener('resize', ()=>view=fit());
 
-        label {
-            font-size: 12px;
-            color: var(--muted);
-            font-weight: 600
-        }
+function widthAtY(y, meta){
+  const {H, bulb, neck, k} = meta;
+  const t = Math.min(1, Math.abs(y)/H);
+  return neck + (bulb - neck) * Math.pow(t, k ?? 1.05);
+}
 
-        input[type="number"] {
-            width: 90px;
-            padding: 8px 10px;
-            border: 1px solid #1f2430;
-            border-radius: 10px;
-            background: var(--panel);
-            color: var(--text)
-        }
+function drawGlass(ctx, meta, DPR){
+  const {H} = meta;
+  ctx.save();
+  ctx.lineWidth = Math.max(1.5, 2*DPR/2);
+  ctx.strokeStyle = "rgba(255,255,255,0.16)";
+  const steps = 72;
 
-        input[type="range"] {
-            appearance: none;
-            width: 140px;
-            height: 6px;
-            border-radius: 999px;
-            background: #1c212b
-        }
+  // left
+  ctx.beginPath();
+  for (let i=0;i<=steps;i++){
+    const t = -H + i*(2*H/steps);
+    const x = -widthAtY(t, meta);
+    (i===0) ? ctx.moveTo(x,t) : ctx.lineTo(x,t);
+  }
+  ctx.stroke();
 
-        input[type="range"]::-webkit-slider-thumb {
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: var(--a);
-            border: 2px solid #0a0b0f
-        }
+  // right
+  ctx.beginPath();
+  for (let i=0;i<=steps;i++){
+    const t = -H + i*(2*H/steps);
+    const x =  widthAtY(t, meta);
+    (i===0) ? ctx.moveTo(x,t) : ctx.lineTo(x,t);
+  }
+  ctx.stroke();
 
-        .btn {
-            border: 1px solid #2a2f3a;
-            background: #141823;
-            color: var(--text);
-            padding: 8px 12px;
-            border-radius: 12px;
-            cursor: pointer
-        }
+  // caps
+  ctx.beginPath();
+  ctx.moveTo(-widthAtY(-H, meta), -H);
+  ctx.lineTo( widthAtY(-H, meta), -H);
+  ctx.moveTo(-widthAtY( H, meta),  H);
+  ctx.lineTo( widthAtY( H, meta),  H);
+  ctx.stroke();
 
-        .btn.primary {
-            background: linear-gradient(180deg, #2a3647, #18202d)
-        }
+  // neck guide
+  ctx.strokeStyle = "rgba(79,195,247,0.28)";
+  ctx.beginPath(); ctx.moveTo(-meta.neck,0); ctx.lineTo(meta.neck,0); ctx.stroke();
 
-        .btn.secondary {
-            background: linear-gradient(180deg, #3a2640, #221628)
-        }
+  ctx.restore();
+}
 
-        .stat {
-            color: var(--muted);
-            font-variant-numeric: tabular-nums
-        }
+function fmtTime(sec){
+  sec = Math.max(0, Math.round(sec));
+  const m = (sec/60)|0, s = String(sec%60).padStart(2,'0');
+  return `${String(m).padStart(2,'0')}:${s}`;
+}
+function updateTimeUI(){
+  if(!bake){ timeEl.textContent = "00:00 / 00:00"; return; }
+  const cur = frame / bake.meta.fps;
+  const total = (bake.meta.frames-1) / bake.meta.fps;
+  timeEl.textContent = `${fmtTime(cur)} / ${fmtTime(total)}`;
+}
 
-        .canvas-wrap {
-            position: relative;
-            height: calc(100vh - 64px);
-            display: grid;
-            place-items: center;
-            padding: 8px
-        }
+async function loadURL(url){
+  const res = await fetch(url);
+  bake = await res.json();
+  const buf = Uint8Array.from(atob(bake.data), c=>c.charCodeAt(0)).buffer;
+  data = new Uint16Array(buf);
+  frame = 0; lastT = performance.now();
+  scrub.max = String(bake.meta.frames - 1);
+  scrub.value = "0";
+  updateTimeUI();
+  playing = true; btnPP.textContent = "Pause";
+}
+async function loadFile(file){
+  const txt = await file.text();
+  bake = JSON.parse(txt);
+  const buf = Uint8Array.from(atob(bake.data), c=>c.charCodeAt(0)).buffer;
+  data = new Uint16Array(buf);
+  frame = 0; lastT = performance.now();
+  scrub.max = String(bake.meta.frames - 1);
+  scrub.value = "0";
+  updateTimeUI();
+  playing = true; btnPP.textContent = "Pause";
+}
 
-        canvas {
-            background: radial-gradient(1200px 700px at 50% 15%, rgba(255, 255, 255, .04), rgba(255, 255, 255, 0) 60%), #0b0c10;
-            border-radius: 18px;
-            border: 1px solid #1b1f28;
-            width: min(900px, 98vw);
-            height: calc(min(900px, 98vw)*1.1)
-        }
+async function loadIndex(){
+  try{
+    const res = await fetch('bakes/index.json', {cache:'no-store'});
+    if(!res.ok) throw new Error(res.statusText);
+    const list = await res.json();
+    sel.innerHTML = "";
+    for(const e of list){
+      const opt = document.createElement('option');
+      opt.value = e.file;
+      opt.textContent = e.label || e.file;
+      sel.appendChild(opt);
+    }
+    if(list.length>0){
+      sel.selectedIndex = 0;
+    }
+  }catch(e){
+    // fallback single placeholder if index missing
+    sel.innerHTML = `<option value="" disabled selected>No bakes/index.json found</option>`;
+  }
+}
 
-        .overlay {
-            position: absolute;
-            inset: 0;
-            display: grid;
-            align-content: start;
-            padding: 14px;
-            pointer-events: none
-        }
+function draw(){
+  if(!bake) return;
+  const {DPR, cssW, cssH} = view;
+  const {fps, grains, frames, Q, H, bulb, r} = bake.meta;
 
-        .pill {
-            display: inline-flex;
-            gap: 8px;
-            align-items: center;
-            padding: 6px 10px;
-            border-radius: 999px;
-            background: rgba(0, 0, 0, .35);
-            border: 1px solid rgba(255, 255, 255, .08);
-            margin: 4px
-        }
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  ctx.save(); ctx.translate(cssW/2, cssH/2);
 
-        .stack {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap
-        }
+  drawGlass(ctx, bake.meta, DPR);
 
-        .mono {
-            font-variant-numeric: tabular-nums
-        }
+  ctx.fillStyle = "rgba(244,143,177,0.96)";
+  ctx.beginPath();
+  const base = (frame|0) * grains * 2;
+  for(let i=0;i<grains;i++){
+    const x = data[base + i*2]     / Q - bulb - 5;
+    const y = data[base + i*2 + 1] / Q - H    - 5;
+    ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI*2);
+  }
+  ctx.fill();
 
-        footer {
-            padding: 6px 14px;
-            color: var(--muted)
-        }
-    </style>
-</head>
+  ctx.restore();
+}
 
-<body>
-    <header>
-        <h1>Physics Hourglass</h1>
-        <label>Duration (sec)</label><input id="duration" type="number" min="10" max="1800" step="5" value="60" />
-        <label>Quality</label><input id="quality" type="range" min="0.5" max="3" step="0.1" value="1.0" />
-        <label>Neck</label><input id="neck" type="range" min="8" max="36" step="1" value="16" />
-        <button id="startBtn" class="btn primary">Start</button>
-        <button id="pauseBtn" class="btn">Pause</button>
-        <button id="resetBtn" class="btn secondary">Reset</button>
-        <div class="stat" id="stats"></div>
-    </header>
+function loop(){
+  requestAnimationFrame(loop);
+  if(!bake) return;
+  const now = performance.now(), dt = (now - lastT)/1000; lastT = now;
+  if(playing && !scrubbing){
+    frame += speed * dt * bake.meta.fps;
+    if(frame >= bake.meta.frames) frame = bake.meta.frames - 0.001; // hold final
+    scrub.value = String(frame|0);
+    updateTimeUI();
+  }
+  draw();
+}
 
-    <div class="canvas-wrap">
-        <canvas id="cv"></canvas>
-        <div class="overlay">
-            <div class="stack">
-                <div class="pill">⏳ <span id="timeLeft" class="mono">00:00</span></div>
-                <div class="pill">grains: <span id="grainCount" class="mono">0</span></div>
-                <div class="pill">fps: <span id="fps" class="mono">-</span></div>
-                <div class="pill">anti-jam: <span id="antijam" class="mono">idle</span></div>
-            </div>
-        </div>
-    </div>
-    <footer>Neck gate releases exactly grains ÷ seconds. Anti-jam nudges only if the queue at the neck stalls.</footer>
+// UI wires
+document.getElementById('reloadIndex').onclick = loadIndex;
+sel.onchange = () => { const v = sel.value; if(v) loadURL(v); };
 
-    <script>
-        (() => {
-            // ---------- Canvas / DPR ----------
-            const cv = document.getElementById('cv');
-            const ctx = cv.getContext('2d');
-            function fitCanvas() {
-                const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-                const cssW = Math.min(900, window.innerWidth * 0.98);
-                const cssH = cssW * 1.1;
-                cv.style.width = cssW + 'px';
-                cv.style.height = cssH + 'px';
-                cv.width = Math.round(cssW * DPR);
-                cv.height = Math.round(cssH * DPR);
-                return { DPR, W: cssW, H: cssH };
-            }
-            let view = fitCanvas();
-            window.addEventListener('resize', () => view = fitCanvas());
+btnPP.onclick = () => { playing = !playing; btnPP.textContent = playing ? "Pause" : "Play"; };
+speedEl.oninput = e => (speed = +e.target.value);
 
-            // ---------- UI ----------
-            const ui = {
-                duration: document.getElementById('duration'),
-                quality: document.getElementById('quality'),
-                neck: document.getElementById('neck'),
-                start: document.getElementById('startBtn'),
-                pause: document.getElementById('pauseBtn'),
-                reset: document.getElementById('resetBtn'),
-                timeLeft: document.getElementById('timeLeft'),
-                grainCount: document.getElementById('grainCount'),
-                fps: document.getElementById('fps'),
-                anti: document.getElementById('antijam'),
-            };
-            const fmt = s => { s = Math.max(0, Math.round(s)); return `${String((s / 60) | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+document.getElementById('loadUrl').onclick = () => {
+  const u = document.getElementById('url').value.trim();
+  if(u) loadURL(u);
+};
+document.getElementById('file').onchange = e => {
+  const f = e.target.files?.[0]; if(f) loadFile(f);
+};
 
-            // ---------- Geometry ----------
-            const geom = {
-                H: 340, neck: 16, bulb: 210, basePad: 22, a: 0,
-                set(scale, neckPx) { this.H = Math.round(330 * scale); this.bulb = Math.round(205 * scale); this.neck = Math.max(8, neckPx | 0); this.a = (this.bulb - this.neck) / (this.H * this.H); },
-                widthAtY(y) { return this.neck + this.a * y * y; },
-                draw(ctx, DPR) {
-                    ctx.save();
-                    ctx.lineWidth = Math.max(1.5, 2 * DPR / 2);
-                    ctx.strokeStyle = "rgba(255,255,255,0.16)";
-                    const steps = 64, Hh = this.H;
-                    ctx.beginPath();
-                    for (let i = 0; i <= steps; i++) { const t = -Hh + i * (2 * Hh / steps); ctx.lineTo(-this.widthAtY(t), t); }
-                    for (let i = steps; i >= 0; i--) { const t = -Hh + i * (2 * Hh / steps); ctx.lineTo(+this.widthAtY(t), t); }
-                    ctx.closePath(); ctx.stroke();
-                    ctx.strokeStyle = "rgba(79,195,247,0.35)"; ctx.beginPath(); ctx.moveTo(-this.neck, 0); ctx.lineTo(this.neck, 0); ctx.stroke();
-                    ctx.fillStyle = "rgba(0,0,0,0.18)"; ctx.beginPath(); ctx.ellipse(0, this.H + this.basePad, this.bulb * 0.9, 14, 0, 0, Math.PI * 2); ctx.fill();
-                    ctx.restore();
-                }
-            };
+// scrubber interactions
+scrub.addEventListener('pointerdown', () => { scrubbing = true; wasPlaying = playing; playing = false; });
+scrub.addEventListener('pointerup',   () => { scrubbing = false; playing = wasPlaying; });
+scrub.addEventListener('input', () => {
+  if(!bake) return;
+  frame = +scrub.value;
+  updateTimeUI();
+  draw();
+});
 
-            // ---------- Sand (Verlet + spatial hash + hard gate) ----------
-            class Sand {
-                constructor(cap) {
-                    this.n = 0;
-                    this.x = new Float32Array(cap); this.y = new Float32Array(cap);
-                    this.px = new Float32Array(cap); this.py = new Float32Array(cap);
-                    this.r = new Float32Array(cap); this.top = new Uint8Array(cap); // 1 = in top bulb
-                    this.capacity = cap; this.massPer = 1;
-                    this.gridSize = 18; this.grid = new Map();
-                    this.gravity = 900; this.damp = 0.998; this.iters = 1;
-                    this.lastCross = performance.now(); this.flowBuf = new Array(20).fill(0); this.fp = 0;
-                    this.quota = 0; // grains allowed to release (accumulator)
-                }
-                clear() { this.n = 0; this.grid.clear(); this.flowBuf.fill(0); this.fp = 0; this.lastCross = performance.now(); this.quota = 0; }
-                add(x, y, r, top = 1) { if (this.n >= this.capacity) return; const i = this.n++; this.x[i] = this.px[i] = x; this.y[i] = this.py[i] = y; this.r[i] = r; this.top[i] = top; }
-                key(cx, cy) { return (cx << 16) ^ (cy & 0xffff); }
-                rebuild() { this.grid.clear(); const s = this.gridSize; for (let i = 0; i < this.n; i++) { const k = this.key((this.x[i] / s) | 0, (this.y[i] / s) | 0); if (!this.grid.has(k)) this.grid.set(k, []); this.grid.get(k).push(i); } }
-                neighbors(i, out) {
-                    out.length = 0; const s = this.gridSize, cx = (this.x[i] / s) | 0, cy = (this.y[i] / s) | 0;
-                    for (let dy = -1; dy <= 1; dy++)for (let dx = -1; dx <= 1; dx++) { const arr = this.grid.get(this.key(cx + dx, cy + dy)); if (!arr) continue; for (let j = 0; j < arr.length; j++) { const id = arr[j]; if (id !== i) out.push(id); } }
-                }
-                integrate(dt, geom, nudge = 0) {
-                    const g = this.gravity, damp = Math.pow(this.damp, dt * 60);
-                    for (let i = 0; i < this.n; i++) {
-                        let vx = (this.x[i] - this.px[i]) * damp, vy = (this.y[i] - this.py[i]) * damp;
-                        this.px[i] = this.x[i]; this.py[i] = this.y[i];
-                        vy += g * dt;
-                        const d = Math.abs(this.y[i]); if (d < 26) { vx += nudge * (1 - d / 26); }
-                        this.x[i] += vx; this.y[i] += vy;
-                    }
-                    // walls
-                    for (let k = 0; k < this.iters; k++) {
-                        for (let i = 0; i < this.n; i++) {
-                            const r = this.r[i];
-                            if (this.y[i] < -geom.H + r) this.y[i] = -geom.H + r;
-                            if (this.y[i] > geom.H - r) this.y[i] = geom.H - r;
-                            const w = geom.widthAtY(this.y[i]) - 1.2, minX = -w + r, maxX = w - r;
-                            if (this.x[i] < minX) this.x[i] = minX; else if (this.x[i] > maxX) this.x[i] = maxX;
-                        }
-                    }
-                }
-                collide() {
-                    this.rebuild(); const tmp = [];
-                    for (let i = 0; i < this.n; i++) {
-                        this.neighbors(i, tmp);
-                        for (let k = 0; k < tmp.length; k++) {
-                            const j = tmp[k], dx = this.x[j] - this.x[i], dy = this.y[j] - this.y[i];
-                            const min = this.r[i] + this.r[j], d2 = dx * dx + dy * dy; if (d2 >= min * min || d2 <= 1e-8) continue;
-                            const d = Math.sqrt(d2), o = (min - d) * 0.5, nx = dx / d, ny = dy / d; this.x[i] -= nx * o; this.y[i] -= ny * o; this.x[j] += nx * o; this.y[j] += ny * o;
-                        }
-                    }
-                }
-                // HARD GATE: block every top-grain at y=0; then release <= floor(quota) grains
-                gate(geom) {
-                    // 1) clamp all top grains above the plane
-                    for (let i = 0; i < this.n; i++) {
-                        if (!this.top[i]) continue;
-                        const r = this.r[i];
-                        if (this.y[i] > -r) this.y[i] = -r; // keep just above the plane
-                    }
-                    // 2) candidates waiting at the plane within the opening
-                    let cand = [];
-                    for (let i = 0; i < this.n; i++) {
-                        if (!this.top[i]) continue;
-                        const r = this.r[i];
-                        if (this.y[i] >= -r - 0.2 && Math.abs(this.x[i]) < geom.neck - r * 0.9) cand.push(i);
-                    }
-                    if (cand.length === 0 || this.quota < 1) return;
-                    cand.sort((a, b) => (this.y[a] - this.r[a]) - (this.y[b] - this.r[b])); // closest first
-                    let allow = Math.min(cand.length, Math.floor(this.quota));
-                    for (let k = 0; k < allow; k++) {
-                        const i = cand[k], r = this.r[i];
-                        // place just below the plane, keep inside neck, add tiny jitter + downward kick
-                        const range = Math.max(0.1, geom.neck - r * 1.05);
-                        this.x[i] = Math.max(-range, Math.min(range, this.x[i])) + (Math.random() - 0.5) * 0.2;
-                        this.y[i] = Math.max(r * 1.1, this.y[i] + r * 1.2);
-                        this.py[i] = this.y[i] - 1.5;     // downward initial velocity (Verlet)
-                        this.top[i] = 0;                  // now in bottom bulb
-                    }
-                    this.quota -= allow;
-                    if (this.quota < 0) this.quota = 0;
-                }
-                updateCross(now) {
-                    let crossed = 0;
-                    for (let i = 0; i < this.n; i++) {
-                        // NOTE: crossing is now handled when releasing; this is kept for stats if any slip (shouldn't)
-                        if (this.top[i] === 0 && this.y[i] >= 0) crossed++;
-                    }
-                    if (crossed > 0) this.lastCross = now;
-                    this.flowBuf[this.fp] = crossed; this.fp = (this.fp + 1) % this.flowBuf.length;
-                    return crossed;
-                }
-                flowPerSecond(fps) { const s = this.flowBuf.reduce((a, b) => a + b, 0); return s * fps / this.flowBuf.length; }
-            }
+// query params: ?bake=... (and optional ?index=...)
+const params = new URLSearchParams(location.search);
+const indexOverride = params.get('index');
+const bakeUrl = params.get('bake');
 
-            // ---------- Simulation ----------
-            const sim = {
-                sand: new Sand(4000),
-                running: false, last: performance.now(), fpsSmooth: 60,
-                elapsed: 0, targetDur: 60, targetRate: 30,
-                scale: 1, avgR: 2.8, antiState: 'idle',
-                reset(sec, quality, neckPx) {
-                    this.targetDur = Math.max(10, Math.min(sec | 0, 1800));
-                    const durClamp = Math.min(this.targetDur, 600);
-                    this.scale = 1.0 + (durClamp / 600) * 0.4;
-                    geom.set(this.scale, neckPx | 0);
+(async () => {
+  if(indexOverride){
+    // try custom index first
+    try{
+      const res = await fetch(indexOverride, {cache:'no-store'});
+      const list = await res.json();
+      sel.innerHTML = "";
+      for(const e of list){
+        const opt = document.createElement('option');
+        opt.value = e.file;
+        opt.textContent = e.label || e.file;
+        sel.appendChild(opt);
+      }
+    }catch{}
+  }else{
+    await loadIndex();
+  }
 
-                    // total grains proportional to duration & quality (balanced for perf)
-                    let grains = Math.round((60 * quality) * (this.targetDur / 1.2)); // ~50–150 grains/s visual
-                    grains = Math.max(800, Math.min(grains, 6000));
-                    this.sand = new Sand(grains);
-                    this.avgR = 2.6 + 0.7 * (Math.min(1, quality / 1.5));
-                    this.sand.gridSize = Math.max(16, Math.round(this.avgR * 2.2));
-                    const minNeck = Math.max(8, Math.ceil(this.avgR * 2.6)); if (geom.neck < minNeck) geom.neck = minNeck;
-
-                    // spawn top only
-                    this.sand.clear();
-                    const Hh = geom.H, pad = 12;
-                    for (let i = 0; i < grains; i++) {
-                        const y = -Hh + pad + Math.random() * (Hh * 0.85);
-                        const maxX = geom.widthAtY(y) - 1.5;
-                        const x = (Math.random() * 2 - 1) * maxX * 0.75;
-                        const r = this.avgR * (0.85 + Math.random() * 0.35);
-                        this.sand.add(x, y, r, 1);
-                    }
-
-                    this.targetRate = grains / this.targetDur; // grains per second
-                    this.sand.quota = 0;
-                    this.elapsed = 0; this.running = false; this.antiState = 'idle';
-                    ui.grainCount.textContent = this.sand.n.toLocaleString();
-                    ui.anti.textContent = this.antiState;
-                    ui.timeLeft.textContent = fmt(this.targetDur);
-                },
-                start() { this.running = true; this.last = performance.now(); },
-                toggle() { this.running = !this.running; this.last = performance.now(); },
-                update() {
-                    const now = performance.now();
-                    let dt = Math.min(1 / 24, (now - this.last) / 1000);
-                    this.last = now;
-                    if (this.running) this.elapsed += dt;
-
-                    // add frame quota
-                    if (this.running) this.sand.quota += this.targetRate * dt;
-
-                    // anti-jam if the queue doesn't change for a while (light horizontal nudge)
-                    const stalled = (now - this.sand.lastCross) > 800 && this.elapsed < this.targetDur - 0.5;
-                    const nudge = stalled ? (Math.sin(now * 0.05) * 50 + (Math.random() * 10 - 5)) * dt : 0;
-                    this.antiState = stalled ? 'vibrating' : 'idle';
-
-                    // stable substeps
-                    const sub = 1 / 180, steps = Math.max(1, Math.min(5, Math.round(dt / sub))), h = dt / steps;
-
-                    if (this.running) {
-                        for (let s = 0; s < steps; s++) {
-                            this.sand.integrate(h, geom, nudge);
-                            // Gate strictly controls crossing BEFORE collisions
-                            this.sand.gate(geom);
-                            this.sand.collide();
-                            this.sand.updateCross(now);
-                        }
-                    }
-
-                    // stop at time
-                    if (this.running && this.elapsed >= this.targetDur) this.running = false;
-
-                    // draw
-                    this.render();
-
-                    // stats
-                    this.fpsSmooth = this.fpsSmooth * 0.9 + (1 / dt) * 0.1;
-                    ui.fps.textContent = (this.fpsSmooth | 0);
-                    ui.anti.textContent = this.antiState;
-                    ui.timeLeft.textContent = fmt(Math.max(0, this.targetDur - this.elapsed));
-                },
-                render() {
-                    const { DPR, W, H } = view;
-                    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-                    ctx.clearRect(0, 0, W, H);
-                    ctx.save(); ctx.translate(W / 2, H / 2);
-
-                    geom.draw(ctx, DPR);
-
-                    // bottom (pink)
-                    ctx.fillStyle = "rgba(244,143,177,0.95)";
-                    ctx.beginPath();
-                    for (let i = 0; i < this.sand.n; i++) { if (this.sand.y[i] >= 0) { const r = this.sand.r[i]; ctx.moveTo(this.sand.x[i] + r, this.sand.y[i]); ctx.arc(this.sand.x[i], this.sand.y[i], r, 0, Math.PI * 2); } }
-                    ctx.fill();
-
-                    // top (blue)
-                    ctx.fillStyle = "rgba(79,195,247,0.95)";
-                    ctx.beginPath();
-                    for (let i = 0; i < this.sand.n; i++) { if (this.sand.y[i] < 0) { const r = this.sand.r[i]; ctx.moveTo(this.sand.x[i] + r, this.sand.y[i]); ctx.arc(this.sand.x[i], this.sand.y[i], r, 0, Math.PI * 2); } }
-                    ctx.fill();
-
-                    // neck glow
-                    ctx.save(); ctx.globalCompositeOperation = "lighter";
-                    ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fillRect(-geom.neck - 1, -6, geom.neck * 2 + 2, 12);
-                    ctx.restore();
-
-                    // progress ring
-                    const prog = Math.min(1, this.elapsed / this.targetDur);
-                    const r = 26, cx = -W / 2 + 54, cy = -H / 2 + 54;
-                    ctx.save(); ctx.translate(cx, cy);
-                    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
-                    ctx.strokeStyle = "#4fc3f7"; ctx.beginPath(); ctx.arc(0, 0, r, -Math.PI / 2, -Math.PI / 2 + prog * 2 * Math.PI); ctx.stroke();
-                    ctx.restore();
-
-                    ctx.restore();
-                }
-            };
-
-            // ---------- Wire UI ----------
-            function apply(start = false) {
-                const dur = +ui.duration.value || 60;
-                const q = +ui.quality.value || 1;
-                const neck = +ui.neck.value || 16;
-                sim.reset(dur, q, neck);
-                if (start) sim.start();
-            }
-            ui.start.addEventListener('click', () => apply(true));
-            ui.reset.addEventListener('click', () => apply(false));
-            ui.pause.addEventListener('click', () => sim.toggle());
-            window.addEventListener('keydown', e => {
-                if (e.key === ' ') { e.preventDefault(); sim.toggle(); }
-                if (e.key === 'r') { e.preventDefault(); apply(false); }
-                if (e.key === 's') { e.preventDefault(); apply(true); }
-            });
-
-            // init + loop
-            apply(false);
-            (function loop() { requestAnimationFrame(loop); sim.update(); })();
-        })();
-    </script>
-</body>
-
-</html>
+  if(bakeUrl){
+    await loadURL(bakeUrl);
+    // select it in the dropdown if present
+    const opt = [...sel.options].find(o => o.value === bakeUrl);
+    if(opt) sel.value = bakeUrl;
+  }
+  loop();
+})();
+</script>

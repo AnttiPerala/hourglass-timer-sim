@@ -1,0 +1,22 @@
+[
+  {
+    "file": "bakes/hourglass_60s_neck12_c11.15_c21.7_full0.9.json",
+    "label": "60s • neck 12 • cubic c1=1.15 c2=1.7 • 3150 grains",
+    "duration": 60,
+    "grains": 3150,
+    "neck": 12,
+    "c1": 1.15,
+    "c2": 1.7,
+    "date": "2025-09-05T10:09:11.486Z"
+  },
+  {
+    "file": "bakes/hourglass_60s_neck16_k1.05_full0.92.json",
+    "label": "60s • neck 16 • k 1.05 • 3220 grains",
+    "duration": 60,
+    "grains": 3220,
+    "neck": 16,
+    "k": 1.05,
+    "r": 2.6,
+    "date": "2025-09-05T09:53:09.218Z"
+  }
+]
