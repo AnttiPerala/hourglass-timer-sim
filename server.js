@@ -1,7 +1,4 @@
-// server.js — Bake UI server (Express + SSE)
-// Run:  node server.js
-// Then open: http://localhost:5173/baker.html
-
+// server.js — Bake UI server (Express + SSE, patched)
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -11,6 +8,7 @@ const PORT = process.env.PORT || 5173;
 const ROOT = process.cwd();
 const BAKES_DIR = path.join(ROOT, "bakes");
 const PUBLIC_DIR = path.join(ROOT, "public");
+const BAKE_JS = path.join(ROOT, "bake.js");
 
 fs.mkdirSync(BAKES_DIR, { recursive: true });
 fs.mkdirSync(PUBLIC_DIR, { recursive: true });
@@ -20,37 +18,64 @@ app.use(express.json());
 app.use("/bakes", express.static(BAKES_DIR, { maxAge: 0 }));
 app.use("/", express.static(PUBLIC_DIR, { maxAge: 0 }));
 
-// ---- in-memory task registry ----
+// ---- tasks registry ----
 const tasks = new Map();
-const newId = () =>
-  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const newId = () => Math.random().toString(36).slice(2, 10);
 
-function sendSSE(res, event, data) {
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(data)}\n\n`);
+// Helper to push SSE to every listener of a task
+function pushEvent(task, event, payload) {
+  task.logs.push({ event, payload, t: Date.now() });
+  for (const res of task.listeners) {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  }
 }
 
-// ---- start a bake ----
+// ---- start bake ----
 app.post("/api/bake", (req, res) => {
   const id = newId();
-  const opts = req.body || {};
-  const bakePath = path.join(ROOT, "bake.js");
-
-  const args = [bakePath, "--progress"];
-  for (const [k, v] of Object.entries(opts)) {
-    if (v === undefined || v === null || v === "") continue;
-    args.push(`--${k}`, String(v));
-  }
-
-  const proc = spawn(process.execPath, args, { cwd: ROOT, env: process.env });
-
-  const task = { id, proc, logs: [], listeners: [], done: false };
+  const task = { id, logs: [], listeners: [], done: false };
   tasks.set(id, task);
 
-  // line buffer for stdout/stderr
+  const body = req.body || {};
+
+  // Map known numeric/body options to CLI flags expected by bake.js
+  const flagMap = {
+    duration: "--duration",
+    grains: "--grains",
+    fps: "--fps",
+    full: "--full",
+    neck: "--neck",
+    H: "--H",
+    bulb: "--bulb",
+    r: "--r",
+    k: "--k",
+    tiltDeg: "--tiltDeg",
+    slat: "--slat",
+    flushMaxSec: "--flushMaxSec",
+    sleepVel: "--sleepVel",
+    sleepMs: "--sleepMs",
+    c1: "--c1",
+    c2: "--c2",
+  };
+
+  const args = [BAKE_JS, "--progress", "--outDir", BAKES_DIR];
+  for (const [key, flag] of Object.entries(flagMap)) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== "") {
+      args.push(flag, String(body[key]));
+    }
+  }
+  if (body.noFlush) args.push("--noFlush");
+
+  console.log(`[bake] spawn: node ${args.map(a => (a.includes(" ") ? JSON.stringify(a) : a)).join(" ")}`);
+
+  const proc = spawn(process.execPath, args, { cwd: ROOT, env: process.env });
+  task.proc = proc;
+
+  // stream child output → parse progress
   let buffer = "";
-  const handleChunk = (chunk) => {
-    buffer += chunk.toString("utf8");
+  const handleChunk = (buf) => {
+    buffer += buf.toString("utf8");
     let idx;
     while ((idx = buffer.indexOf("\n")) >= 0) {
       const line = buffer.slice(0, idx).trimEnd();
@@ -58,66 +83,73 @@ app.post("/api/bake", (req, res) => {
       handleLine(line);
     }
   };
-  const push = (event, payload) => {
-    task.logs.push({ event, payload, t: Date.now() });
-    for (const r of task.listeners) sendSSE(r, event, payload);
-  };
+
   const handleLine = (line) => {
     if (!line) return;
     if (line.startsWith("BAKE ")) {
       try {
         const msg = JSON.parse(line.slice(5));
         if (msg.event === "progress") {
-          const pct = Math.max(
-            0,
-            Math.min(100, Math.round((msg.frame / Math.max(1, msg.target)) * 100))
-          );
-          push("progress", { pct, frame: msg.frame, target: msg.target });
+          const pct = Math.max(0, Math.min(100, Math.round((msg.frame / Math.max(1, msg.target)) * 100)));
+          pushEvent(task, "progress", { pct, frame: msg.frame, target: msg.target });
         } else if (msg.event === "done") {
           task.done = true;
-          // Normalize Windows path to URL path
-          const rel = msg.file.replace(/\\/g, "/").replace(/^(\.\/|\/)?/, "");
-          push("done", { file: `/${rel}`, frames: msg.frames, fps: msg.fps });
+          const rel = (msg.file || "").replace(/\\/g, "/").replace(/^(\.\/|\/)?/, "");
+          pushEvent(task, "done", { file: `/${rel}`, frames: msg.frames, fps: msg.fps });
         } else {
-          push("meta", msg);
+          pushEvent(task, "meta", msg);
         }
-      } catch {
-        push("log", { line });
+      } catch (err) {
+        pushEvent(task, "log", { line });
       }
     } else {
-      push("log", { line });
+      pushEvent(task, "log", { line });
     }
   };
 
   proc.stdout.on("data", handleChunk);
   proc.stderr.on("data", handleChunk);
-  proc.on("close", (code) => push("exit", { code }));
+  proc.on("close", (code) => pushEvent(task, "exit", { code }));
 
   res.json({ id });
 });
 
-// ---- progress stream (SSE) ----
+// ---- SSE stream ----
 app.get("/api/stream/:id", (req, res) => {
-  const task = tasks.get(req.params.id);
-  if (!task) {
-    res.status(404).end("No such task.");
-    return;
-  }
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  const id = req.params.id;
+  const task = tasks.get(id);
+  if (!task) return res.status(404).end();
+
+  console.log(`[SSE] connect id=${id} (listeners=${task.listeners.length})`);
+
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
+  // If behind nginx: res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
 
-  // send backlog
-  for (const { event, payload } of task.logs) sendSSE(res, event, payload);
+  // Send a hello + backlog so UI updates immediately
+  res.write(`event: hello\ndata: {"ok":true}\n\n`);
+  for (const { event, payload } of task.logs) {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  }
+
+  // Heartbeat to keep connection alive
+  const hb = setInterval(() => {
+    res.write(`event: ping\n`);
+    res.write(`data: ${Date.now()}\n\n`);
+  }, 15000);
+
   task.listeners.push(res);
-
   req.on("close", () => {
+    clearInterval(hb);
     task.listeners = task.listeners.filter((r) => r !== res);
+    console.log(`[SSE] disconnect id=${id} (listeners=${task.listeners.length})`);
   });
 });
 
-// ---- existing bakes list ----
+// ---- index of existing bakes ----
 app.get("/api/index", (_req, res) => {
   try {
     const p = path.join(BAKES_DIR, "index.json");
