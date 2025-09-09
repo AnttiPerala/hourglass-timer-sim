@@ -20,6 +20,16 @@
     "date": "2025-09-05T10:43:46.023Z"
   },
   {
+    "file": "bakes/hourglass_60s_neck6_c11.1_c21.55_full0.9.json",
+    "label": "60s • neck 6 • cubic c1=1.1 c2=1.55 • 3150 grains",
+    "duration": 60,
+    "grains": 3150,
+    "neck": 6,
+    "c1": 1.1,
+    "c2": 1.55,
+    "date": "2025-09-05T10:53:27.205Z"
+  },
+  {
     "file": "bakes/hourglass_60s_neck12_c11.15_c21.7_full0.9.json",
     "label": "60s • neck 12 • cubic c1=1.15 c2=1.7 • 3150 grains",
     "duration": 60,
@@ -30,6 +40,17 @@
     "date": "2025-09-05T10:09:11.486Z"
   },
   {
+    "file": "bakes/hourglass_60s_neck12_c11.1_c21.55_full0.9.json",
+    "label": "60s • neck 12 • cubic c1=1.1 c2=1.55 • 3150 grains",
+    "duration": 60,
+    "grains": 3150,
+    "neck": 12,
+    "c1": 1.1,
+    "c2": 1.55,
+    "lastCrossFrame": 1287,
+    "date": "2025-09-05T15:25:44.188Z"
+  },
+  {
     "file": "bakes/hourglass_60s_neck16_k1.05_full0.92.json",
     "label": "60s • neck 16 • k 1.05 • 3220 grains",
     "duration": 60,
@@ -38,5 +59,25 @@
     "k": 1.05,
     "r": 2.6,
     "date": "2025-09-05T09:53:09.218Z"
+  },
+  {
+    "file": "bakes/hourglass_120s_neck6_c11.1_c21.55_full0.9.json",
+    "label": "120s • neck 6 • cubic c1=1.1 c2=1.55 • 4050 grains",
+    "duration": 120,
+    "grains": 4050,
+    "neck": 6,
+    "c1": 1.1,
+    "c2": 1.55,
+    "date": "2025-09-05T13:04:27.720Z"
+  },
+  {
+    "file": "bakes/hourglass_140s_neck6_c11.1_c21.55_full0.9.json",
+    "label": "140s • neck 6 • cubic c1=1.1 c2=1.55 • 5400 grains",
+    "duration": 140,
+    "grains": 5400,
+    "neck": 6,
+    "c1": 1.1,
+    "c2": 1.55,
+    "date": "2025-09-05T13:55:23.792Z"
   }
 ]

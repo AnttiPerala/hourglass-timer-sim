@@ -1,0 +1,214 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Bake UI — Sparse Hourglass (with Tooltips)</title>
+<style>
+  :root{--bg:#0b0c10;--text:#e8ecf1;--muted:#9aa3ad;--card:#11131a;--line:#20232b}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px system-ui}
+  .wrap{max-width:980px;margin:auto;padding:18px}
+  h1{font-size:18px;margin:0 0 12px;color:#dbe4ee}
+  .grid{display:grid;grid-template-columns:repeat(4, minmax(160px,1fr));gap:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+  label{display:flex;flex-direction:column;gap:6px;font-weight:600;color:var(--muted)}
+  input{padding:8px;border-radius:8px;border:1px solid #1f2430;background:#0f1219;color:var(--text)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}
+  button{background:#141823;border:1px solid #2a2f3a;color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer}
+  .log{background:#0f1219;border:1px solid var(--line);border-radius:10px;padding:8px;height:160px;overflow:auto;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+  a{color:#4fc3f7;text-decoration:none}
+  .pill{display:inline-block;background:#0e1420;border:1px solid #263247;border-radius:999px;padding:4px 8px;margin-right:6px;color:#9aa3ad}
+
+  /* -------- Tooltips (CSS-only) -------- */
+  [data-tip]{position:relative}
+  [data-tip]::after,[data-tip]::before{pointer-events:none;position:absolute;opacity:0;transition:opacity .12s ease, transform .12s ease;z-index:50}
+  [data-tip]:hover::after,[data-tip]:focus-within::after,
+  [data-tip]:hover::before,[data-tip]:focus-within::before{opacity:1}
+  [data-tip]::after{
+    content:attr(data-tip);
+    left:50%; top:calc(100% + 10px);
+    transform:translateX(-50%) translateY(-4px);
+    background:#0f1219; color:#e8ecf1; border:1px solid #263247;
+    border-radius:8px; padding:8px 10px; max-width:360px; width:max-content; white-space:normal; line-height:1.25;
+    box-shadow:0 6px 18px rgba(0,0,0,.35)
+  }
+  [data-tip]::before{
+    content:""; left:50%; top:100%;
+    transform:translateX(-50%) translateY(-4px);
+    border:6px solid transparent; border-bottom-color:#263247
+  }
+
+  @media (max-width:900px){
+    .grid{grid-template-columns:repeat(2, minmax(160px,1fr))}
+  }
+</style>
+
+<div class="wrap">
+  <h1>Hourglass – Sparse Bake UI</h1>
+
+  <div class="card">
+    <div class="grid">
+      <label data-tip="Wall-clock length you want the playback to be. The baker may simulate a bit longer to fully empty the top bulb, then the viewer retimes so the last frame lands exactly at this duration.">
+        Duration (sec)
+        <input id="duration" type="number" min="10" max="7200" value="60" aria-label="Duration in seconds">
+      </label>
+
+      <label data-tip="Viewer playback sampling rate. Higher FPS looks smoother but increases file size and CPU. 30–60 is usually perfect. The baker samples physics at this rate (or a divisor) and the viewer remaps linearly.">
+        FPS (playback)
+        <input id="fps" type="number" min="10" max="120" value="60" aria-label="Playback FPS">
+      </label>
+
+      <label data-tip="Target number of grains to spawn before fullness scaling. Actual spawned grains = Grains × Fullness. More grains = richer look, heavier bake and larger files. 3–6k is a good range.">
+        Grains
+        <input id="grains" type="number" min="200" max="10000" value="3500" aria-label="Number of grains">
+      </label>
+
+      <label data-tip="How full the top bulb starts (0–1). Also multiplies your grain count. Lower this a bit (e.g. 0.88–0.92) to guarantee the top empties without leftovers above the neck.">
+        Fullness (0–1)
+        <input id="full" type="number" step="0.01" min="0.5" max="1" value="0.90" aria-label="Fullness">
+      </label>
+
+      <label data-tip="Half width at the bottleneck (in px). Smaller neck slows the flow (longer timer) but may bridge; we add subtle jitter to prevent hard jams. Typical 12–20.">
+        Neck width
+        <input id="neck" type="number" min="6" max="40" value="16" aria-label="Neck width">
+      </label>
+
+      <label data-tip="Half height of the glass from center to cap (in px). Sets vertical scale of the shape and how far grains fall. Usually 300–360.">
+        Half-height H
+        <input id="H" type="number" min="200" max="500" value="330" aria-label="Half height H">
+      </label>
+
+      <label data-tip="Half width of the bulbs at the caps (in px). Larger bulb makes a wider silhouette and more storage at the ends.">
+        Bulb half-width
+        <input id="bulb" type="number" min="120" max="300" value="205" aria-label="Bulb half width">
+      </label>
+
+      <label data-tip="Visual and collision radius of each grain (in px). Bigger grains are cheaper to simulate for the same visual fill, but coarser. Typical 2.2–3.0.">
+        Grain radius
+        <input id="r" type="number" step="0.1" min="1.5" max="4" value="2.6" aria-label="Grain radius">
+      </label>
+
+      <label data-tip="Side curvature exponent. 1.0 ≈ iconic straight silhouette, >1 rounds the sides toward the caps. Try 1.0–1.15.">
+        Side exponent k
+        <input id="k" type="number" step="0.01" min="0.8" max="2" value="1.0" aria-label="Side exponent k">
+      </label>
+
+      <label data-tip="Small gravity tilt (degrees) to break symmetry and avoid bridges at the neck. 0.8–1.8° is subtle and effective.">
+        Tilt (deg)
+        <input id="tiltDeg" type="number" step="0.1" min="0" max="5" value="1.2" aria-label="Tilt degrees">
+      </label>
+
+      <label data-tip="Wall smoothing step (px). The glass walls are built from many thin rotated slats; a smaller step makes a smoother curve but more static bodies. 3–6 is a good balance.">
+        Wall slat (px)
+        <input id="slat" type="number" min="2" max="12" value="4" aria-label="Wall slat step">
+      </label>
+
+      <label data-tip="Extra seconds the baker is allowed to simulate after reaching the target frame count to ensure the TOP bulb fully empties. The viewer then retimes to your Duration. Set 10–30s.">
+        Flush max (s)
+        <input id="flushMaxSec" type="number" min="0" max="60" value="20" aria-label="Flush max seconds">
+      </label>
+
+      <label data-tip="A grain must be below this speed for this many seconds to be considered settled (then it stops being recorded in the sparse stream). Higher value = fewer updates and smaller files; too high can 'freeze' rolling grains.">
+        Settle seconds
+        <input id="settleSec" type="number" step="0.1" min="0.2" max="5" value="1.5" aria-label="Settle seconds">
+      </label>
+
+      <label data-tip="Speed threshold (px/s) to qualify as 'still' for settle detection. Lower is stricter. If settled grains flicker, raise this slightly (e.g., 0.02 → 0.03).">
+        Settle speed (px/s)
+        <input id="settleSpeed" type="number" step="0.002" min="0.002" max="0.2" value="0.02" aria-label="Settle speed">
+      </label>
+    </div>
+
+    <div class="row">
+      <button id="start" data-tip="Start the sparse bake with the settings above. Streams to /bakes/<name>.bin and writes a tiny JSON meta. Progress appears below.">Bake (sparse)</button>
+      <button id="list" data-tip="List meta JSON files currently in the /bakes folder.">List baked files</button>
+      <span id="status" class="pill" data-tip="Live status: stage, current frame, bytes written, and number of settled (frozen) grains.">idle</span>
+    </div>
+
+    <div class="log" id="log" data-tip="Bake log: meta snapshot, progress ticks, and completion summary."></div>
+
+    <div class="row" id="links" style="display:none">
+      <span>Result:</span>
+      <a id="metaLink" href="#" target="_blank" data-tip="Open the metadata JSON (includes geometry, fps, and a path to the .bin stream).">meta.json</a>
+      <a id="binLink"  href="#" target="_blank" style="margin-left:10px" data-tip="Raw binary stream of frames. The player applies sparse updates from this file.">data.bin</a>
+      <a id="openPlayer" href="#" target="_blank" style="margin-left:10px" data-tip="Open directly in the advanced sparse player (scrub, jog, loop, target-duration sync).">Open in player</a>
+    </div>
+  </div>
+
+  <p style="color:#9aa3ad;margin-top:12px" data-tip="Rules of thumb: 30–60 fps, 3–6k grains, fullness ~0.88–0.92, neck 12–20, tilt ~1.2°. The sparse stream shrinks a lot once grains settle. Serve the .bin gzipped for 2–4× smaller transfer.">
+    Tips: 30–60 fps looks great. Keep fullness a touch below 1 to avoid leftovers. Gzip the .bin when serving.
+  </p>
+</div>
+
+<script>
+const qs = id => document.getElementById(id);
+const logEl = qs('log'), statusEl = qs('status'), linksEl = qs('links');
+function log(msg){ const t=new Date().toLocaleTimeString(); logEl.textContent += `[${t}] ${msg}\n`; logEl.scrollTop = logEl.scrollHeight; }
+function val(id){ return +qs(id).value; }
+
+qs('start').onclick = async () => {
+  linksEl.style.display = 'none';
+  statusEl.textContent = 'starting…';
+  log('Starting bake…');
+
+  const body = {
+    duration: val('duration'),
+    fps: val('fps'),
+    grains: val('grains'),
+    full: +qs('full').value,
+    neck: val('neck'),
+    H: val('H'),
+    bulb: val('bulb'),
+    r: +qs('r').value,
+    k: +qs('k').value,
+    tiltDeg: +qs('tiltDeg').value,
+    slat: val('slat'),
+    flushMaxSec: val('flushMaxSec'),
+    settleSec: +qs('settleSec').value,
+    settleSpeed: +qs('settleSpeed').value,
+  };
+
+  try{
+    const res = await fetch('/api/bake', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const { taskId } = await res.json();
+
+    const es = new EventSource('/api/progress/' + taskId);
+    es.onmessage = (e)=>log(e.data);
+    es.addEventListener('meta', e => {
+      const j = JSON.parse(e.data);
+      log('meta: ' + JSON.stringify(j.opts));
+      statusEl.textContent = 'running';
+    });
+    es.addEventListener('progress', e => {
+      const p = JSON.parse(e.data);
+      statusEl.textContent = `${p.stage} • frame ${p.frame} (+${p.extra}) • ~${p.bytesMB} MB written • settled ${p.settled}`;
+    });
+    es.addEventListener('error', e => {
+      statusEl.textContent = 'error';
+      log('ERROR: ' + (e.data || 'event stream closed'));
+    });
+    es.addEventListener('done', e => {
+      const d = JSON.parse(e.data);
+      log('Done. fps=' + d.fps.toFixed(2));
+      statusEl.textContent = 'done';
+      qs('metaLink').href = d.meta;
+      qs('metaLink').textContent = d.meta;
+      qs('binLink').href = d.bin;
+      qs('binLink').textContent = d.bin;
+      qs('openPlayer').href = 'player_sparse.html?meta=' + encodeURIComponent(d.meta);
+      linksEl.style.display = 'inline-flex';
+      es.close();
+    });
+  }catch(err){
+    statusEl.textContent = 'error';
+    log('ERROR: ' + err.message);
+  }
+};
+
+qs('list').onclick = async () => {
+  const res = await fetch('/api/bakes');
+  const arr = await res.json();
+  log('Bakes:\n' + arr.map(x => '  ' + x).join('\n'));
+};
+</script>
