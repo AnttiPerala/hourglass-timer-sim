@@ -1,165 +1,173 @@
-// server.js — Bake UI server (Express + SSE, patched)
-const express = require("express");
-const path = require("path");
-const fs = require("fs");
-const { spawn } = require("child_process");
-
-const PORT = process.env.PORT || 5173;
-const ROOT = process.cwd();
-const BAKES_DIR = path.join(ROOT, "bakes");
-const PUBLIC_DIR = path.join(ROOT, "public");
-const BAKE_JS = path.join(ROOT, "bake.js");
-
-fs.mkdirSync(BAKES_DIR, { recursive: true });
-fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+import express from "express";
+import { spawn } from "child_process";
+import path from "path";
+import fs from "fs";
 
 const app = express();
-app.use(express.json());
-app.use("/bakes", express.static(BAKES_DIR, { maxAge: 0 }));
-app.use("/", express.static(PUBLIC_DIR, { maxAge: 0 }));
+const PORT = process.env.PORT || 5173;
+const ROOT = process.cwd();
+const PUB_DIR = path.join(ROOT, "public");
+const BAKES_DIR = path.join(ROOT, "bakes");
+const INDEX_PATH = path.join(BAKES_DIR, "index.json");
 
-// ---- tasks registry ----
-const tasks = new Map();
-const newId = () => Math.random().toString(36).slice(2, 10);
+if (!fs.existsSync(BAKES_DIR)) fs.mkdirSync(BAKES_DIR, { recursive: true });
+if (!fs.existsSync(INDEX_PATH)) fs.writeFileSync(INDEX_PATH, "[]", "utf-8");
 
-// Helper to push SSE to every listener of a task
-function pushEvent(task, event, payload) {
-  task.logs.push({ event, payload, t: Date.now() });
-  for (const res of task.listeners) {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+app.use(express.json({ limit: "2mb" }));
+app.use("/public", express.static(PUB_DIR, { extensions: ["html"] }));
+app.use("/bakes", express.static(BAKES_DIR));
+
+// In-memory task registry for SSE
+const tasks = new Map(); // id -> {backlog:[], clients:Set, proc}
+const makeEvent = (name, data) => `event: ${name}\n` + `data: ${JSON.stringify(data)}\n\n`;
+
+function addBacklog(id, name, payload) {
+  const t = tasks.get(id);
+  if (!t) return;
+  const evt = { name, data: payload, at: Date.now() };
+  t.backlog.push(evt);
+  // keep last ~200 entries
+  if (t.backlog.length > 200) t.backlog.splice(0, t.backlog.length - 200);
+  // fan out
+  for (const res of t.clients) {
+    try { res.write(makeEvent(name, payload)); } catch {}
   }
 }
 
-// ---- start bake ----
 app.post("/api/bake", (req, res) => {
-  const id = newId();
-  const task = { id, logs: [], listeners: [], done: false };
-  tasks.set(id, task);
+  try {
+    const p = req.body || {};
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
+    const args = [
+      "bake.js",
+      "--id", id,
+      "--duration", String(p.duration ?? 10),
+      "--fps", String(p.fps ?? 60),
+      "--grains", String(p.grains ?? 500),
+      "--full", String(p.full ?? 1),
+      "--neck", String(p.neck ?? 12),
+      "--H", String(p.H ?? 500),
+      "--bulb", String(p.bulb ?? 220),
+      "--r", String(p.r ?? 2),
+      "--k", String(p.k ?? 0.1),
+      "--tiltDeg", String(p.tiltDeg ?? 0),
+      "--c1", String(p.c1 ?? 0.0),
+      "--c2", String(p.c2 ?? 0.0),
+      "--slat", String(p.slat ?? 0),
+      "--sleepVel", String(p.sleepVel ?? 2),
+      "--sleepMs", String(p.sleepMs ?? 500),
+      "--flushMaxSec", String(p.flushMaxSec ?? 15),
+      ...(p.noFlush ? ["--noFlush"] : []),
+      "--outDir", "bakes",
+      "--outputMode", String(p.outputMode ?? "dense"),
+      "--Q", String(p.Q ?? 32),
+      "--progress"
+    ];
+    const node = process.execPath;
+    const child = spawn(node, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const task = { backlog: [], clients: new Set(), proc: child };
+    tasks.set(id, task);
+    res.json({ id });
 
-  const body = req.body || {};
-
-  // Map known numeric/body options to CLI flags expected by bake.js
-  const flagMap = {
-    duration: "--duration",
-    grains: "--grains",
-    fps: "--fps",
-    full: "--full",
-    neck: "--neck",
-    H: "--H",
-    bulb: "--bulb",
-    r: "--r",
-    k: "--k",
-    tiltDeg: "--tiltDeg",
-    slat: "--slat",
-    flushMaxSec: "--flushMaxSec",
-    sleepVel: "--sleepVel",
-    sleepMs: "--sleepMs",
-    c1: "--c1",
-    c2: "--c2",
-  };
-
-  const args = [BAKE_JS, "--progress", "--outDir", BAKES_DIR];
-  for (const [key, flag] of Object.entries(flagMap)) {
-    if (body[key] !== undefined && body[key] !== null && body[key] !== "") {
-      args.push(flag, String(body[key]));
-    }
-  }
-  if (body.noFlush) args.push("--noFlush");
-
-  console.log(`[bake] spawn: node ${args.map(a => (a.includes(" ") ? JSON.stringify(a) : a)).join(" ")}`);
-
-  const proc = spawn(process.execPath, args, { cwd: ROOT, env: process.env });
-  task.proc = proc;
-
-  // stream child output → parse progress
-  let buffer = "";
-  const handleChunk = (buf) => {
-    buffer += buf.toString("utf8");
-    let idx;
-    while ((idx = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, idx).trimEnd();
-      buffer = buffer.slice(idx + 1);
-      handleLine(line);
-    }
-  };
-
-  const handleLine = (line) => {
-    if (!line) return;
-    if (line.startsWith("BAKE ")) {
-      try {
-        const msg = JSON.parse(line.slice(5));
-        if (msg.event === "progress") {
-          const pct = Math.max(0, Math.min(100, Math.round((msg.frame / Math.max(1, msg.target)) * 100)));
-          pushEvent(task, "progress", { pct, frame: msg.frame, target: msg.target });
-        } else if (msg.event === "done") {
-          task.done = true;
-          const rel = (msg.file || "").replace(/\\/g, "/").replace(/^(\.\/|\/)?/, "");
-          pushEvent(task, "done", { file: `/${rel}`, frames: msg.frames, fps: msg.fps });
-        } else {
-          pushEvent(task, "meta", msg);
+    const onLine = (line, isErr=false) => {
+      const s = line.toString().trim();
+      if (!s) return;
+      if (s.startsWith("BAKE ")) {
+        try {
+          const obj = JSON.parse(s.slice(5));
+          if (obj && obj.event) {
+            addBacklog(id, obj.event, obj);
+            if (obj.event === "done") {
+              // leave cleanup to 'exit' handler
+            }
+          }
+        } catch (e) {
+          addBacklog(id, "log", { level: "warn", msg: s });
         }
-      } catch (err) {
-        pushEvent(task, "log", { line });
+      } else {
+        addBacklog(id, "log", { level: isErr ? "err" : "info", msg: s });
       }
-    } else {
-      pushEvent(task, "log", { line });
-    }
-  };
+    };
 
-  proc.stdout.on("data", handleChunk);
-  proc.stderr.on("data", handleChunk);
-  proc.on("close", (code) => pushEvent(task, "exit", { code }));
-
-  res.json({ id });
+    let outBuf = "";
+    child.stdout.on("data", (chunk) => {
+      outBuf += chunk.toString();
+      let idx;
+      while ((idx = outBuf.indexOf("\n")) >= 0) {
+        const ln = outBuf.slice(0, idx);
+        outBuf = outBuf.slice(idx + 1);
+        onLine(ln, false);
+      }
+    });
+    let errBuf = "";
+    child.stderr.on("data", (chunk) => {
+      errBuf += chunk.toString();
+      let idx;
+      while ((idx = errBuf.indexOf("\n")) >= 0) {
+        const ln = errBuf.slice(0, idx);
+        errBuf = errBuf.slice(idx + 1);
+        onLine(ln, true);
+      }
+    });
+    child.on("exit", (code, signal) => {
+      addBacklog(id, "exit", { code, signal });
+      // let clients naturally disconnect; keep backlog for a while
+      setTimeout(() => tasks.delete(id), 5 * 60_000);
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: String(e) });
+  }
 });
 
-// ---- SSE stream ----
 app.get("/api/stream/:id", (req, res) => {
-  const id = req.params.id;
-  const task = tasks.get(id);
-  if (!task) return res.status(404).end();
-
-  console.log(`[SSE] connect id=${id} (listeners=${task.listeners.length})`);
-
+  const { id } = req.params;
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  // If behind nginx: res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("X-Accel-Buffering", "no"); // for nginx
   res.flushHeaders?.();
 
-  // Send a hello + backlog so UI updates immediately
-  res.write(`event: hello\ndata: {"ok":true}\n\n`);
-  for (const { event, payload } of task.logs) {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  let t = tasks.get(id);
+  if (!t) {
+    // allow late subscription — create empty task to deliver future messages
+    t = { backlog: [], clients: new Set(), proc: null };
+    tasks.set(id, t);
+  }
+  t.clients.add(res);
+
+  // hello + backlog
+  res.write(makeEvent("hello", { id, now: Date.now() }));
+  for (const evt of t.backlog) {
+    res.write(makeEvent(evt.name, evt.data));
   }
 
-  // Heartbeat to keep connection alive
+  // heartbeat
   const hb = setInterval(() => {
-    res.write(`event: ping\n`);
-    res.write(`data: ${Date.now()}\n\n`);
-  }, 15000);
+    try { res.write(makeEvent("ping", { t: Date.now() })); } catch {}
+  }, 15_000);
 
-  task.listeners.push(res);
   req.on("close", () => {
     clearInterval(hb);
-    task.listeners = task.listeners.filter((r) => r !== res);
-    console.log(`[SSE] disconnect id=${id} (listeners=${task.listeners.length})`);
+    t.clients.delete(res);
   });
 });
 
-// ---- index of existing bakes ----
-app.get("/api/index", (_req, res) => {
+app.get("/api/index", (req, res) => {
   try {
-    const p = path.join(BAKES_DIR, "index.json");
-    if (!fs.existsSync(p)) return res.json([]);
-    res.json(JSON.parse(fs.readFileSync(p, "utf8")));
-  } catch {
-    res.json([]);
+    const raw = fs.readFileSync(INDEX_PATH, "utf-8");
+    res.setHeader("Content-Type", "application/json");
+    res.send(raw);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
   }
 });
 
+// Serve convenience entry points
+app.get("/", (req, res) => res.redirect("/public/index.html"));
+app.use("/", express.static(PUB_DIR, { extensions: ["html"] }));
+
 app.listen(PORT, () => {
-  console.log(`Bake UI listening on http://localhost:${PORT}/baker.html`);
+  console.log(`Hourglass server listening on http://localhost:${PORT}/`);
+  console.log(`Baker UI: http://localhost:${PORT}/baker.html`);
 });

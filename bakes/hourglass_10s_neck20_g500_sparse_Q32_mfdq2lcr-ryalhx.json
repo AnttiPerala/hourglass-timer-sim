@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "duration": 10,
+    "fps": 60,
+    "grains": 500,
+    "full": 1,
+    "neck": 20,
+    "H": 500,
+    "bulb": 220,
+    "r": 10,
+    "k": 0.1,
+    "tiltDeg": 0,
+    "slat": 0,
+    "c1": 0.8,
+    "c2": 0,
+    "Q": 32,
+    "mode": "sparse"
+  },
+  "frames": 961,
+  "fps": 60,
+  "lastCrossFrame": 961,
+  "sbin": "bakes/hourglass_10s_neck20_g500_sparse_Q32_mfdq2lcr-ryalhx.sbin"
+}

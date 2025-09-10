@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Hourglass Bakes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:980px;margin:20px auto;padding:0 16px;}
+    table{border-collapse:collapse;width:100%;}
+    th,td{border-bottom:1px solid #eee;padding:8px 6px;text-align:left;}
+    tr:hover{background:#fafafa;}
+    .filters{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap;}
+    input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px;}
+    a.btn{display:inline-block;padding:8px 12px;border-radius:8px;background:#111;color:#fff;text-decoration:none;margin:8px 0;}
+  </style>
+</head>
+<body>
+  <h1>Hourglass Bakes</h1>
+  <div class="filters">
+    <label>Min duration <input id="minDur" type="number" step="1" value="0"></label>
+    <label>Max duration <input id="maxDur" type="number" step="1" value="9999"></label>
+  </div>
+  <a class="btn" href="baker.html">Open Baker</a>
+  <table id="tbl">
+    <thead><tr><th>Label</th><th>Grains</th><th>Neck</th><th>Duration</th><th>Date</th></tr></thead>
+    <tbody></tbody>
+  </table>
+<script>
+const $=(s)=>document.querySelector(s);
+async function load(){
+  const res = await fetch("/api/index");
+  const arr = await res.json();
+  render(arr);
+}
+function render(arr){
+  const min = Number($("#minDur").value), max = Number($("#maxDur").value);
+  const body = $("#tbl tbody");
+  body.innerHTML = "";
+  for (const e of arr){
+    if (e.duration < min || e.duration > max) continue;
+    const url = `player.html?bake=${encodeURIComponent(new URL(e.file, location.origin))}`;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><a href="${url}">${e.label}</a></td>
+      <td>${e.grains}</td><td>${e.neck}</td><td>${e.duration}s</td><td>${new Date(e.date).toLocaleString()}</td>`;
+    body.appendChild(tr);
+  }
+}
+$("#minDur").oninput = $("#maxDur").oninput = load;
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "duration": 20,
+    "fps": 60,
+    "grains": 2000,
+    "full": 1,
+    "neck": 8,
+    "H": 500,
+    "bulb": 220,
+    "r": 2,
+    "k": 0.1,
+    "tiltDeg": 0,
+    "slat": 0,
+    "c1": 0.8,
+    "c2": 0,
+    "Q": 32,
+    "mode": "sparse"
+  },
+  "frames": 1200,
+  "fps": 60,
+  "lastCrossFrame": 1200,
+  "sbin": "bakes/hourglass_20s_neck8_g2000_sparse_Q32_mfdpz9cb-06rkhf.sbin"
+}
