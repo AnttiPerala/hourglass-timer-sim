@@ -9,37 +9,55 @@ const ROOT = process.cwd();
 const PUB_DIR = path.join(ROOT, "public");
 const BAKES_DIR = path.join(ROOT, "bakes");
 const INDEX_PATH = path.join(BAKES_DIR, "index.json");
+const BAKE_SCRIPT = path.join(ROOT, "bake.js");
 
+// Ensure folders/files exist
 if (!fs.existsSync(BAKES_DIR)) fs.mkdirSync(BAKES_DIR, { recursive: true });
 if (!fs.existsSync(INDEX_PATH)) fs.writeFileSync(INDEX_PATH, "[]", "utf-8");
 
 app.use(express.json({ limit: "2mb" }));
-app.use("/public", express.static(PUB_DIR, { extensions: ["html"] }));
-app.use("/bakes", express.static(BAKES_DIR));
 
-// In-memory task registry for SSE
-const tasks = new Map(); // id -> {backlog:[], clients:Set, proc}
-const makeEvent = (name, data) => `event: ${name}\n` + `data: ${JSON.stringify(data)}\n\n`;
+// Dev logging (light)
+app.use((req, _res, next) => {
+  if (process.env.NODE_ENV !== "test") console.log(`${req.method} ${req.url}`);
+  next();
+});
+
+/* =========================
+   In-memory SSE task state
+   ========================= */
+// id -> {backlog: Array<{name,data,at}>, clients: Set<res>, proc: ChildProcess|null }
+const tasks = new Map();
+
+const makeEvent = (name, data) =>
+  `event: ${name}\n` + `data: ${JSON.stringify(data)}\n\n`;
 
 function addBacklog(id, name, payload) {
   const t = tasks.get(id);
   if (!t) return;
   const evt = { name, data: payload, at: Date.now() };
   t.backlog.push(evt);
-  // keep last ~200 entries
   if (t.backlog.length > 200) t.backlog.splice(0, t.backlog.length - 200);
-  // fan out
   for (const res of t.clients) {
     try { res.write(makeEvent(name, payload)); } catch {}
   }
 }
 
+/* ===============
+   API endpoints
+   =============== */
+
+// Health probe
+app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+
+// Start a bake
 app.post("/api/bake", (req, res) => {
   try {
     const p = req.body || {};
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
+
     const args = [
-      "bake.js",
+      BAKE_SCRIPT,
       "--id", id,
       "--duration", String(p.duration ?? 10),
       "--fps", String(p.fps ?? 60),
@@ -54,17 +72,25 @@ app.post("/api/bake", (req, res) => {
       "--c1", String(p.c1 ?? 0.0),
       "--c2", String(p.c2 ?? 0.0),
       "--slat", String(p.slat ?? 0),
+
+      // Wall thickness passthrough (0 = auto)
+      "--wallThickness", String(p.wallThickness ?? 0),
+
       "--sleepVel", String(p.sleepVel ?? 2),
       "--sleepMs", String(p.sleepMs ?? 500),
       "--flushMaxSec", String(p.flushMaxSec ?? 15),
       ...(p.noFlush ? ["--noFlush"] : []),
+
       "--outDir", "bakes",
       "--outputMode", String(p.outputMode ?? "dense"),
       "--Q", String(p.Q ?? 32),
+
       "--progress"
     ];
+
     const node = process.execPath;
-    const child = spawn(node, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(node, args, { stdio: ["ignore", "pipe", "pipe"], cwd: ROOT });
+
     const task = { backlog: [], clients: new Set(), proc: child };
     tasks.set(id, task);
     res.json({ id });
@@ -75,13 +101,9 @@ app.post("/api/bake", (req, res) => {
       if (s.startsWith("BAKE ")) {
         try {
           const obj = JSON.parse(s.slice(5));
-          if (obj && obj.event) {
-            addBacklog(id, obj.event, obj);
-            if (obj.event === "done") {
-              // leave cleanup to 'exit' handler
-            }
-          }
-        } catch (e) {
+          if (obj && obj.event) addBacklog(id, obj.event, obj);
+          else addBacklog(id, "log", { level: "info", msg: s });
+        } catch {
           addBacklog(id, "log", { level: "warn", msg: s });
         }
       } else {
@@ -89,6 +111,7 @@ app.post("/api/bake", (req, res) => {
       }
     };
 
+    // line-buffer child stdio
     let outBuf = "";
     child.stdout.on("data", (chunk) => {
       outBuf += chunk.toString();
@@ -99,6 +122,7 @@ app.post("/api/bake", (req, res) => {
         onLine(ln, false);
       }
     });
+
     let errBuf = "";
     child.stderr.on("data", (chunk) => {
       errBuf += chunk.toString();
@@ -109,9 +133,10 @@ app.post("/api/bake", (req, res) => {
         onLine(ln, true);
       }
     });
+
     child.on("exit", (code, signal) => {
       addBacklog(id, "exit", { code, signal });
-      // let clients naturally disconnect; keep backlog for a while
+      // Keep backlog for a while so late subscribers (with the SAME id) can still read it
       setTimeout(() => tasks.delete(id), 5 * 60_000);
     });
   } catch (e) {
@@ -120,29 +145,34 @@ app.post("/api/bake", (req, res) => {
   }
 });
 
+// Server-Sent Events stream
 app.get("/api/stream/:id", (req, res) => {
   const { id } = req.params;
+
+  // IMPORTANT: if the task id is unknown, DO NOT create a placeholder;
+  // return 404 so random/old ids don't hold open useless SSE connections.
+  const t = tasks.get(id);
+  if (!t) {
+    res.status(404).json({ error: "unknown task id" });
+    return;
+  }
+
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no"); // for nginx
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  let t = tasks.get(id);
-  if (!t) {
-    // allow late subscription — create empty task to deliver future messages
-    t = { backlog: [], clients: new Set(), proc: null };
-    tasks.set(id, t);
-  }
+  // Write a comment line to nudge proxies
+  res.write(`: connected ${Date.now()}\n\n`);
+
   t.clients.add(res);
 
   // hello + backlog
   res.write(makeEvent("hello", { id, now: Date.now() }));
-  for (const evt of t.backlog) {
-    res.write(makeEvent(evt.name, evt.data));
-  }
+  for (const evt of t.backlog) res.write(makeEvent(evt.name, evt.data));
 
-  // heartbeat
+  // heartbeat every 15s
   const hb = setInterval(() => {
     try { res.write(makeEvent("ping", { t: Date.now() })); } catch {}
   }, 15_000);
@@ -153,7 +183,8 @@ app.get("/api/stream/:id", (req, res) => {
   });
 });
 
-app.get("/api/index", (req, res) => {
+// Index JSON
+app.get("/api/index", (_req, res) => {
   try {
     const raw = fs.readFileSync(INDEX_PATH, "utf-8");
     res.setHeader("Content-Type", "application/json");
@@ -163,9 +194,32 @@ app.get("/api/index", (req, res) => {
   }
 });
 
-// Serve convenience entry points
-app.get("/", (req, res) => res.redirect("/public/index.html"));
-app.use("/", express.static(PUB_DIR, { extensions: ["html"] }));
+/* =========================
+   HTML entry points (explicit)
+   ========================= */
+function sendHtml(res, file) {
+  res.setHeader("Cache-Control", "no-cache");
+  res.sendFile(path.join(PUB_DIR, file));
+}
+app.get("/baker.html", (_req, res) => sendHtml(res, "baker.html"));
+app.get("/player.html", (_req, res) => sendHtml(res, "player.html"));
+app.get("/index.html", (_req, res) => sendHtml(res, "index.html"));
+app.get("/", (_req, res) => res.redirect("/baker.html"));
+
+/* =========================
+   Static assets
+   ========================= */
+app.use("/public", express.static(PUB_DIR, { extensions: ["html"] }));
+app.use("/bakes", express.static(BAKES_DIR));
+app.use("/", express.static(PUB_DIR)); // images/css/js etc.
+
+/* =========================
+   Error handler (last)
+   ========================= */
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal Server Error" });
+});
 
 app.listen(PORT, () => {
   console.log(`Hourglass server listening on http://localhost:${PORT}/`);

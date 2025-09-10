@@ -67,7 +67,7 @@ let sparse=null;    // sparse reader
 let alignSec=null;  // seconds to align lastCross to
 let tick=null, cur=0, playing=false;
 
-// ---- same curve as bake.js ----
+// ---- same curve as bake.js (walls are not rotated visually) ----
 function xHalf(y) {
   const ay = Math.abs(y);
   const t = Math.min(1, ay / H);
@@ -135,8 +135,8 @@ async function loadJSON(urlOrFile){
     c1 = meta.c1 ?? 0;
     c2 = meta.c2 ?? 0;
     slat = meta.slat ?? 0;
-    tiltDeg = meta.tiltDeg ?? 0;
-    grainR = meta.r ?? 2;      // respect baked grain radius
+    tiltDeg = meta.tiltDeg ?? 0; // used only for info; not rotating visuals
+    grainR = meta.r ?? 2;
 
     mode = meta.mode || (json.bin ? "dense" : json.sbin ? "sparse" : "legacy");
     $("#fpsVal").textContent = fps;
@@ -167,8 +167,8 @@ async function loadJSON(urlOrFile){
     // lastCross info
     const tActual = (lastCrossFrame != null) ? (lastCrossFrame / fps) : null;
     $("#lcInfo").textContent = (tActual != null)
-      ? `lastCross at frame ${lastCrossFrame} (${tActual.toFixed(2)} s)`
-      : `lastCross not available`;
+      ? `lastCross at frame ${lastCrossFrame} (${tActual.toFixed(2)} s). Tilt (gravity only): ${tiltDeg.toFixed(2)}°`
+      : `lastCross not available. Tilt (gravity only): ${tiltDeg.toFixed(2)}°`;
 
     updateEffFpsDisplay();
     updateClocks();
@@ -220,7 +220,9 @@ function drawFrame(f){
   const s = Math.min(sx, sy);
   ctx.translate(cv.width/2, cv.height/2);
   ctx.scale(s, s);
-  ctx.rotate(tiltDeg * Math.PI / 180);
+
+  // NOTE: We do NOT rotate visuals by tiltDeg anymore.
+  // Tilt influences gravity in the bake only.
 
   // Outline first
   drawOutline(s);
@@ -330,7 +332,7 @@ $("#jump").onclick = ()=>{
   }
 };
 
-// Alignment controls (inputs are ALWAYS enabled now)
+// Alignment controls (always enabled)
 $("#alignSec").addEventListener("input", (e)=>{
   const v = Number(e.target.value);
   alignSec = (isFinite(v) && v > 0) ? v : null;

@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "duration": 120,
+    "fps": 50,
+    "grains": 300,
+    "full": 0.1,
+    "neck": 35,
+    "H": 500,
+    "bulb": 220,
+    "r": 5,
+    "k": 0.1,
+    "tiltDeg": 1.5,
+    "slat": 0,
+    "c1": 0.2,
+    "c2": 0.5,
+    "Q": 32,
+    "mode": "sparse",
+    "wallThickness": 10,
+    "antiClog": {
+      "vibeAmpBaseDeg": 0.25,
+      "vibeAmpMaxDeg": 2,
+      "vibeHz": 2,
+      "unclogDelaySec": 0.35,
+      "usePulses": true,
+      "pulseEverySec": 0.2,
+      "pulseZoneY": 18,
+      "pulseTopOnly": true,
+      "pulseForce": 0.000005
+    }
+  },
+  "frames": 57591,
+  "fps": 50,
+  "lastCrossFrame": null,
+  "sbin": "bakes/hourglass_120s_neck35_g300_sparse_Q32_mfe0f0xu-h4k574.sbin"
+}
