@@ -1,5 +1,65 @@
 [
   {
+    "file": "bakes/hourglass_10s_neck40_g300_sparse_Q32_mfe28fb9-4tc6h6.json",
+    "label": "hourglass_10s_neck40_g300_sparse_Q32_mfe28fb9-4tc6h6",
+    "duration": 10,
+    "fps": 60,
+    "grains": 300,
+    "neck": 40,
+    "c1": 0.8,
+    "c2": 0.2,
+    "lastCrossFrame": null,
+    "date": "2025-09-10T14:13:59.113Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck40_g300_sparse_Q32_mfe27dth-monggp.json",
+    "label": "hourglass_10s_neck40_g300_sparse_Q32_mfe27dth-monggp",
+    "duration": 10,
+    "fps": 60,
+    "grains": 300,
+    "neck": 40,
+    "c1": 0.8,
+    "c2": 0.2,
+    "lastCrossFrame": null,
+    "date": "2025-09-10T14:13:10.529Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck40_g300_sparse_Q32_mfe26bod-1013jf.json",
+    "label": "hourglass_10s_neck40_g300_sparse_Q32_mfe26bod-1013jf",
+    "duration": 10,
+    "fps": 60,
+    "grains": 300,
+    "neck": 40,
+    "c1": 0.8,
+    "c2": 0.2,
+    "lastCrossFrame": 522,
+    "date": "2025-09-10T14:12:07.499Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck40_g300_sparse_Q32_mfe25pf3-2q9r60.json",
+    "label": "hourglass_10s_neck40_g300_sparse_Q32_mfe25pf3-2q9r60",
+    "duration": 10,
+    "fps": 60,
+    "grains": 300,
+    "neck": 40,
+    "c1": 0.8,
+    "c2": 0.2,
+    "lastCrossFrame": 636,
+    "date": "2025-09-10T14:11:38.830Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck50_g500_sparse_Q32_mfe24p41-aaajlp.json",
+    "label": "hourglass_10s_neck50_g500_sparse_Q32_mfe24p41-aaajlp",
+    "duration": 10,
+    "fps": 60,
+    "grains": 500,
+    "neck": 50,
+    "c1": 0.8,
+    "c2": 0.2,
+    "lastCrossFrame": 885,
+    "date": "2025-09-10T14:10:52.836Z"
+  },
+  {
     "file": "bakes/hourglass_10s_neck50_g500_sparse_Q32_mfe1mqve-nm6usv.json",
     "label": "hourglass_10s_neck50_g500_sparse_Q32_mfe1mqve-nm6usv",
     "duration": 10,

@@ -30,7 +30,8 @@ const neck         = num("neck", 12);
 const H            = num("H", 500);
 const bulb         = num("bulb", 220);
 const r            = num("r", 2);
-const k            = num("k", 0.1); // reserved
+const bounce       = num("bounce", 0.12);     // NEW: restitution
+const k            = num("k", 0.1);           // reserved
 const tiltDeg      = num("tiltDeg", 0);
 const c1           = num("c1", 0.0);
 const c2           = num("c2", 0.0);
@@ -47,18 +48,16 @@ const progress     = bool("progress");
 const sparseThresholdPx = num("sparseThresholdPx", 1 / Q);
 
 /* -------------------- adaptive anti-clog controls -------------------- */
-const vibeAmpBaseDeg   = num("vibeAmpDeg", 0.25);     // baseline wobble
+const vibeAmpBaseDeg   = num("vibeAmpDeg", 0.25);
 const vibeHz           = num("vibeHz", 2.0);
-const unclogDelaySec   = num("antiClogPeriod", 0.30); // stall before we intervene
-
-// strong "rescue" when only a few remain above neck
+const unclogDelaySec   = num("antiClogPeriod", 0.30);
 const rescueTopCount   = num("rescueTopCount", 25);
 const vibeAmpMaxDeg    = num("antiClogMaxAmpDeg", 4.5);
 const pulseEverySec    = num("antiClogPulseEvery", 0.12);
 const pulseZoneY       = num("antiClogZoneY", 30);
 const pulseTopOnly     = !bool("pulseBottomToo");
 const pulseForce       = num("antiClogPulseForce", 1.0e-5);
-const rescueDownBias   = num("antiClogDownBias", 4.0e-6); // tiny downward nudge above neck
+const rescueDownBias   = num("antiClogDownBias", 4.0e-6);
 
 /* -------------------- world/engine -------------------- */
 const DT = 1 / fps;
@@ -71,7 +70,7 @@ engine.velocityIterations = 8;
 engine.constraintIterations = 4;
 
 const baseTiltRad = tiltDeg * Math.PI / 180;
-// Tilt gravity (do not rotate geometry)
+// Tilt gravity only (container stays unrotated)
 engine.gravity.x = Math.sin(baseTiltRad);
 engine.gravity.y = Math.cos(baseTiltRad);
 
@@ -90,51 +89,77 @@ function xHalf(y) {
   return (neck / 2) + (bulb - neck / 2) * s;
 }
 
-/* -------------------- walls (overlapping, no chamfer) -------------------- */
+/* -------------------- walls: thickness grows outward only -------------------- */
 const wallThickness = wallThicknessArg > 0 ? wallThicknessArg : Math.max(12, Math.ceil(r * 4));
 function buildWalls() {
   const segs = 200;
   const thickness = wallThickness;
+  const halfT = thickness / 2;
   const overlap = thickness * 1.6;
   const yMin = -H, yMax = H;
   const dy = (yMax - yMin) / segs;
-  const wallOpts = (angle) => ({ isStatic:true, angle, friction:0, frictionStatic:0, restitution:0 });
+  const wallOpts = (angle) => ({
+    isStatic: true, angle,
+    friction: 0, frictionStatic: 0, restitution: 0
+  });
 
   const bodies = [];
+
   for (let i = 0; i < segs; i++) {
     const y0 = yMin + i * dy;
     const y1 = yMin + (i + 1) * dy;
     const xm0 = xHalf(y0), xm1 = xHalf(y1);
 
-    // left
+    // LEFT side (inner curve x = -xHalf(y))
     {
-      const lx0=-xm0, lx1=-xm1;
-      const cx=(lx0+lx1)/2, cy=(y0+y1)/2;
-      const segLen=Math.hypot(lx1-lx0, y1-y0);
-      const len=segLen + overlap;
-      const ang=Math.atan2(y1 - y0, lx1 - lx0);
+      const p0 = { x: -xm0, y: y0 };
+      const p1 = { x: -xm1, y: y1 };
+      const dx = p1.x - p0.x, dySeg = p1.y - p0.y;
+      const segLen = Math.hypot(dx, dySeg);
+      const len = segLen + overlap;
+      const ang = Math.atan2(dySeg, dx);
+      // outward normal (negative X for left)
+      let nx = -dySeg, ny = dx;
+      const nl = Math.hypot(nx, ny) || 1;
+      nx /= nl; ny /= nl;
+      if (nx > 0) { nx = -nx; ny = -ny; }
+      const cx = (p0.x + p1.x) / 2 + nx * halfT;
+      const cy = (p0.y + p1.y) / 2 + ny * halfT;
       bodies.push(Bodies.rectangle(cx, cy, len, thickness, wallOpts(ang)));
     }
-    // right
+
+    // RIGHT side (inner curve x = +xHalf(y))
     {
-      const rx0=xm0, rx1=xm1;
-      const cx=(rx0+rx1)/2, cy=(y0+y1)/2;
-      const segLen=Math.hypot(rx1-rx0, y1-y0);
-      const len=segLen + overlap;
-      const ang=Math.atan2(y1 - y0, rx1 - rx0);
+      const p0 = { x: +xm0, y: y0 };
+      const p1 = { x: +xm1, y: y1 };
+      const dx = p1.x - p0.x, dySeg = p1.y - p0.y;
+      const segLen = Math.hypot(dx, dySeg);
+      const len = segLen + overlap;
+      const ang = Math.atan2(dySeg, dx);
+      // outward normal (positive X for right)
+      let nx = -dySeg, ny = dx;
+      const nl = Math.hypot(nx, ny) || 1;
+      nx /= nl; ny /= nl;
+      if (nx < 0) { nx = -nx; ny = -ny; }
+      const cx = (p0.x + p1.x) / 2 + nx * halfT;
+      const cy = (p0.y + p1.y) / 2 + ny * halfT;
       bodies.push(Bodies.rectangle(cx, cy, len, thickness, wallOpts(ang)));
     }
   }
-  if (slat > 0) bodies.push(Bodies.rectangle(0, 0, slat, thickness, { isStatic:true, friction:0, frictionStatic:0 }));
 
-  bodies.push(Bodies.rectangle(0, -H - thickness, WORLD_W, thickness, { isStatic:true }));
-  bodies.push(Bodies.rectangle(0,  H + thickness, WORLD_W, thickness, { isStatic:true }));
+  if (slat > 0) {
+    bodies.push(Bodies.rectangle(0, 0, slat, thickness, { isStatic:true, friction:0, frictionStatic:0, restitution:0 }));
+  }
+
+  // Top/bottom caps: outer only (inner edge sits at ±H)
+  bodies.push(Bodies.rectangle(0, -H - halfT, WORLD_W, thickness, { isStatic:true }));
+  bodies.push(Bodies.rectangle(0,  H + halfT, WORLD_W, thickness, { isStatic:true }));
 
   bodies.forEach(b => World.add(engine.world, b));
 }
 buildWalls();
 
-/* -------------------- interior test -------------------- */
+/* -------------------- helper: inside test -------------------- */
 const insideMargin = Math.max(1, Math.ceil(r * 0.75));
 function isInside(p) {
   const y = p.y;
@@ -143,7 +168,7 @@ function isInside(p) {
   return Math.abs(p.x) <= limit;
 }
 
-/* -------------------- seed grains -------------------- */
+/* -------------------- seed grains (top bulb) -------------------- */
 const grains = [];
 const topYmin = -H + 20, topYmax = -10;
 const maxTries = grainsN * 60;
@@ -153,7 +178,7 @@ function tryPlace(y) {
   const xBound = Math.max(4, xHalf(y) - r - 2);
   const x = (Math.random()*2 - 1) * xBound;
   const circle = Bodies.circle(x, y, r, {
-    restitution: 0.12,
+    restitution: Math.max(0, Math.min(1, bounce)),  // bounciness control
     friction: 0.015,
     frictionStatic: 0.0,
     density: 0.001
@@ -170,7 +195,7 @@ function tryPlace(y) {
 while (placed < grainsN && tries < maxTries) { tries++; const y = topYmin + Math.random() * (topYmax - topYmin); if (tryPlace(y)) placed++; }
 while (placed < grainsN) { const y = -H + 30 - placed * (2*r + 0.2); if (tryPlace(y)) placed++; }
 
-/* -------------------- IO buffers -------------------- */
+/* -------------------- output streams -------------------- */
 const nameBase = `hourglass_${duration}s_neck${neck}_g${grainsN}_${outputMode}_Q${Q}_${id}`;
 const jsonPath = path.join(outDir, `${nameBase}.json`);
 fs.mkdirSync(outDir, { recursive: true });
@@ -195,7 +220,7 @@ if (outputMode === "dense") {
 /* -------------------- sim state -------------------- */
 const targetFrames = Math.round(duration * fps);
 let frames = 0;
-let lastCrossFrame = null; // when top bulb becomes empty (inside-only)
+let lastCrossFrame = null;
 let lastFlowFrame = 0;
 let stallFrames = 0;
 let pulseAccum = 0;
@@ -235,7 +260,7 @@ function recordFrame() {
 function emitProgress(){ if (progress) console.log("BAKE " + JSON.stringify({event:"progress", frame:frames, target:targetFrames})); }
 function emitMeta(){
   console.log("BAKE " + JSON.stringify({
-    event:"meta", grains:grainsN, fps, duration, neck, bulb, H, r, Q, mode:outputMode,
+    event:"meta", grains:grainsN, fps, duration, neck, bulb, H, r, bounce, Q, mode:outputMode,
     wallThickness,
     antiClog:{ vibeAmpBaseDeg, vibeAmpMaxDeg, vibeHz, unclogDelaySec, rescueTopCount, pulseEverySec, pulseZoneY, pulseTopOnly, pulseForce, rescueDownBias }
   }));
@@ -247,14 +272,12 @@ function currentVibeAmpDeg(topCount) {
   const stallSec = stallFrames / fps;
   let amp = vibeAmpBaseDeg;
   if (stallSec > unclogDelaySec) {
-    const t = Math.min(1, (stallSec - unclogDelaySec) / 1.2); // faster ramp
+    const t = Math.min(1, (stallSec - unclogDelaySec) / 1.2);
     amp = vibeAmpBaseDeg + (vibeAmpMaxDeg - vibeAmpBaseDeg) * (0.5 - 0.5*Math.cos(Math.PI*t));
   }
-  // If almost empty above the neck, force a stronger wobble
   if (topCount <= rescueTopCount) amp = Math.max(amp, vibeAmpMaxDeg);
   return amp;
 }
-
 function pulseNeck(topCount) {
   const yBand = topCount <= rescueTopCount ? Math.max(pulseZoneY, 40) : pulseZoneY;
   const xLimit = xHalf(0) + 2*r;
@@ -271,7 +294,6 @@ function pulseNeck(topCount) {
     if (pulseTopOnly && yLoc >= 0) continue;
     if (Math.abs(p.x) > xLimit) continue;
 
-    // lateral jitter + small downward bias when above the neck
     const fx = (Math.random() - 0.5) * force * 2;
     const fy = (Math.random() - 0.5) * force * 0.6 + (yLoc < 0 ? -rescueDownBias : 0);
     Body.applyForce(g, p, { x: fx, y: fy });
@@ -299,7 +321,7 @@ function stepOnce() {
       if (speed < sleepVel) g._sleepAccum += DT*1000; else g._sleepAccum = 0;
       if (g._sleepAccum >= sleepMs) { Composite.remove(engine.world, g); g._removed = true; continue; }
     } else {
-      g._sleepAccum = 0;
+      g._sleepAccum = 0; // never sleep above the neck
     }
     g._prevLocalY = yLoc;
   }
@@ -325,7 +347,7 @@ function stepOnce() {
   if (flowed) { lastFlowFrame = frames; stallFrames = 0; pulseAccum = 0; }
   else { stallFrames++; pulseAccum += DT; }
 
-  // Declare last-cross when top empties
+  // last-cross when top empties
   if (lastCrossFrame == null && topBulbEmptyNow()) lastCrossFrame = frames;
 
   // Pulses (stronger/faster when nearly empty above the neck)
@@ -363,7 +385,7 @@ function loop() {
   }
 
   const json = {
-    meta: { duration, fps, grains:grainsN, full, neck, H, bulb, r, k, tiltDeg, slat, c1, c2, Q, mode:outputMode, wallThickness,
+    meta: { duration, fps, grains:grainsN, full, neck, H, bulb, r, bounce, k, tiltDeg, slat, c1, c2, Q, mode:outputMode, wallThickness,
             antiClog:{ vibeAmpBaseDeg, vibeAmpMaxDeg, vibeHz, unclogDelaySec, rescueTopCount, pulseEverySec, pulseZoneY, pulseTopOnly, pulseForce, rescueDownBias } },
     frames, fps,
     lastCrossFrame: lastCrossFrame ?? null,

@@ -29,10 +29,7 @@
     pre#log{
       background:#0f0f0f;color:#eaeaea;padding:10px;border-radius:12px;
       max-height:260px;overflow-y:auto;overflow-x:hidden;font-size:12px;line-height:1.35;
-      /* key bits to kill horizontal scroll on long JSON lines */
-      white-space: pre-wrap;           /* preserve newlines, allow wrapping */
-      word-break: break-word;          /* break long tokens if needed */
-      overflow-wrap: anywhere;         /* as a last resort, break anywhere */
+      white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
     }
     .links a{margin-right:12px}
     .section{display:grid;gap:12px}
@@ -62,7 +59,7 @@
           <input name="duration" type="number" min="1" step="1" value="10"/></div>
 
         <div class="field"><div class="lbl">fps
-          <span class="hint" data-tip="Simulation and output frame rate. Higher = smoother & larger files. Typical: 60.">?</span></div>
+          <span class="hint" data-tip="Simulation/output frame rate. Higher = smoother & larger files. Typical: 60.">?</span></div>
           <input name="fps" type="number" min="1" step="1" value="60"/></div>
 
         <div class="field"><div class="lbl">grains
@@ -89,12 +86,16 @@
           <span class="hint" data-tip="Physical radius of each grain (world px). Player renders grains at this radius.">?</span></div>
           <input name="r" type="number" min="1" step="0.5" value="2"/></div>
 
+        <div class="field"><div class="lbl">bounce (0–1)
+          <span class="hint" data-tip="Grain restitution/bounciness. 0 = no bounce; 1 = perfectly elastic. Typical sand: 0.05–0.2.">?</span></div>
+          <input name="bounce" type="number" min="0" max="1" step="0.01" value="0.12"/></div>
+
         <div class="field"><div class="lbl">k (stiffness-ish)
           <span class="hint" data-tip="Reserved for future tuning; unused in current build.">?</span></div>
           <input name="k" type="number" step="0.05" value="0.1"/></div>
 
         <div class="field"><div class="lbl">tilt (deg)
-          <span class="hint" data-tip="Tilt angle (affects gravity direction). 1–3° helps reduce clogs.">?</span></div>
+          <span class="hint" data-tip="Tilt angle (affects gravity direction only; visuals stay upright). 1–3° helps reduce clogs.">?</span></div>
           <input name="tiltDeg" type="number" step="0.5" value="0"/></div>
 
         <div class="field"><div class="lbl">c1 (curve)
@@ -110,11 +111,11 @@
           <input name="slat" type="number" step="1" value="0"/></div>
 
         <div class="field"><div class="lbl">wall thickness (px)
-          <span class="hint" data-tip="Thickness of the hourglass wall segments (physics bodies). 0 = auto (≈ max(12, 4×r)). Thicker walls are more leak-proof but slightly reduce interior space.">?</span></div>
+          <span class="hint" data-tip="Thickness of the hourglass wall bodies. 0 = auto (≈ max(12, 4×r)). Grows outward only (interior stays exactly on the curve).">?</span></div>
           <input name="wallThickness" type="number" min="0" step="1" value="0"/></div>
 
         <div class="field"><div class="lbl">flushMaxSec
-          <span class="hint" data-tip="When ‘noFlush’ is OFF, the sim may continue after duration to finish the pour (until top empties) but not beyond this many seconds.">?</span></div>
+          <span class="hint" data-tip="If ‘noFlush’ is OFF, sim may continue after duration to finish the pour (until top empties) but not beyond this many seconds.">?</span></div>
           <input name="flushMaxSec" type="number" step="1" value="15"/></div>
 
         <div class="field"><div class="lbl">noFlush
@@ -135,14 +136,14 @@
           <input name="sleepMs" type="number" step="10" value="500"/></div>
 
         <div class="field"><div class="lbl">outputMode
-          <span class="hint" data-tip="dense: every grain every frame (.bin). sparse: only changed grains per frame (.sbin). Player supports both.">?</span></div>
+          <span class="hint" data-tip="dense: every grain every frame (.bin). sparse: only changed grains per frame (.sbin).">?</span></div>
           <select name="outputMode">
             <option value="dense">dense</option>
             <option value="sparse" selected>sparse</option>
           </select></div>
 
         <div class="field"><div class="lbl">quantization Q
-          <span class="hint" data-tip="Positions quantized to 16-bit via q = round((pos+offset)×Q). Higher Q = finer precision (and larger files). Also influences sparse threshold (~1/Q px).">?</span></div>
+          <span class="hint" data-tip="Positions quantized to 16-bit via q = round((pos+offset)×Q). Higher Q = finer precision (and larger files). Also sets sparse threshold (~1/Q px).">?</span></div>
           <input name="Q" type="number" step="1" value="32"/>
         </div>
       </div>
@@ -175,13 +176,14 @@
 window.addEventListener("DOMContentLoaded", () => {
   const $ = (s)=>document.querySelector(s);
 
-  // --- helpers ---
+  // Locale-friendly numeric parser (accepts “1,5” or “1.5”)
   function parseNum(str, fallback=0){
     if (str == null) return fallback;
     const s = String(str).trim().replace(/\s+/g,"").replace(",",".");
     const n = Number(s);
     return Number.isFinite(n) ? n : fallback;
   }
+
   function formToJSON(form){
     const o = {};
     for (const el of Array.from(form.elements)) {
@@ -194,7 +196,7 @@ window.addEventListener("DOMContentLoaded", () => {
     return o;
   }
 
-  // --- persistence ---
+  // persistence
   const STORAGE_KEY = "hourglass.baker.v1";
   function applySettings(form,obj){
     if(!obj) return;
@@ -219,7 +221,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   loadSettings();
 
-  // --- log view (no horizontal scroll, capped lines) ---
+  // log view (wrapped, capped, autoscroll)
   const LOG_MAX = 500;
   $("#logCap").textContent = LOG_MAX;
   const logLines = [];
@@ -228,52 +230,30 @@ window.addEventListener("DOMContentLoaded", () => {
   const logEl = $("#log");
   $("#chkAutoscroll").addEventListener("change", (e)=>{ autoScroll = e.target.checked; });
   $("#btnClearLog").addEventListener("click", ()=>{ logLines.length = 0; logDirty = true; });
-  $("#btnCopyLog").addEventListener("click", async ()=>{
-    try { await navigator.clipboard.writeText(logLines.join("\n")); } catch {}
-  });
-
-  function compact(obj, max=240){
-    try{
-      const s = typeof obj === "string" ? obj : JSON.stringify(obj);
-      return s.length > max ? s.slice(0, max) + "…" : s;
-    }catch{ return String(obj); }
-  }
+  $("#btnCopyLog").addEventListener("click", async ()=>{ try { await navigator.clipboard.writeText(logLines.join("\n")); } catch {} });
   function log(msg){
     const ts = new Date().toLocaleTimeString();
     logLines.push(`[${ts}] ${msg}`);
     if (logLines.length > LOG_MAX) logLines.splice(0, logLines.length - LOG_MAX);
     logDirty = true;
   }
-  // throttle DOM updates
-  setInterval(()=>{
-    if (!logDirty) return;
-    logEl.textContent = logLines.join("\n");
-    if (autoScroll) logEl.scrollTop = logEl.scrollHeight;
-    logDirty = false;
-  }, 100);
+  setInterval(()=>{ if(!logDirty) return; logEl.textContent = logLines.join("\n"); if (autoScroll) logEl.scrollTop = logEl.scrollHeight; logDirty=false; }, 100);
 
-  // --- wire UI ---
-  const frm = $("#frm");
-  const btnList = $("#btnList");
-  const btnReset = $("#btnReset");
+  // buttons
+  $("#btnList").addEventListener("click", ()=>location.href="index.html");
+  $("#btnReset").addEventListener("click", ()=>{ localStorage.removeItem(STORAGE_KEY); $("#frm").reset(); saveSettings(); });
 
-  if (frm){
-    frm.addEventListener("input", saveSettings);
-    frm.addEventListener("change", saveSettings);
-
-    frm.addEventListener("submit", async (e)=>{
-      e.preventDefault(); saveSettings();
-      $("#live").style.display="block"; $("#doneLinks").innerHTML=""; $("#statusText").textContent="Submitting…";
-      const body = formToJSON(e.currentTarget);
-      try{
-        const res = await fetch("/api/bake",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-        if(!res.ok){ const txt=await res.text(); $("#statusText").textContent=`Error: HTTP ${res.status}`; log(`HTTP ${res.status}: ${txt}`); return; }
-        const {id} = await res.json(); $("#statusText").textContent=`Queued (id ${id})`; subscribe(id);
-      }catch(err){ $("#statusText").textContent="Request failed"; log(String(err)); }
-    });
-  }
-  if (btnList) btnList.addEventListener("click", ()=>location.href="index.html");
-  if (btnReset) btnReset.addEventListener("click", ()=>{ localStorage.removeItem(STORAGE_KEY); frm?.reset(); saveSettings(); });
+  // submit → POST /api/bake and subscribe SSE
+  $("#frm").addEventListener("submit", async (e)=>{
+    e.preventDefault(); saveSettings();
+    $("#live").style.display="block"; $("#doneLinks").innerHTML=""; $("#statusText").textContent="Submitting…";
+    const body = formToJSON(e.currentTarget);
+    try{
+      const res = await fetch("/api/bake",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      if(!res.ok){ const txt=await res.text(); $("#statusText").textContent=`Error: HTTP ${res.status}`; log(`HTTP ${res.status}: ${txt}`); return; }
+      const {id} = await res.json(); $("#statusText").textContent=`Queued (id ${id})`; subscribe(id);
+    }catch(err){ $("#statusText").textContent="Request failed"; log(String(err)); }
+  });
 
   function subscribe(id){
     const es = new EventSource(`/api/stream/${id}`);
@@ -281,25 +261,18 @@ window.addEventListener("DOMContentLoaded", () => {
 
     es.addEventListener("hello", ()=>log("connected"));
     es.addEventListener("ping", ()=>{});
-    es.addEventListener("meta", ev=>{
-      try { log(`[meta] ${compact(JSON.parse(ev.data))}`); }
-      catch { log(`[meta] ${compact(ev.data)}`); }
-    });
+    es.addEventListener("meta", ev=>{ try{ log(`[meta] ${ev.data}`);}catch{ log("[meta] (parse error)"); } });
     es.addEventListener("progress", ev=>{
-      const d=JSON.parse(ev.data);
-      target=d.target||target;
+      const d=JSON.parse(ev.data); target=d.target||target;
       $("#frames").textContent=d.frame; $("#target").textContent=target;
       const pct=target?Math.round(100*d.frame/target):0; $("#pct").textContent=pct+"%"; $("#bar").style.width=pct+"%";
       $("#statusText").textContent="Baking…";
     });
-    es.addEventListener("log", ev=>{
-      try{ const d=JSON.parse(ev.data); log(`[${d.level||"log"}] ${compact(d.msg||ev.data)}`); }
-      catch{ log(`[log] ${compact(ev.data)}`); }
-    });
+    es.addEventListener("log", ev=>{ try{ const d=JSON.parse(ev.data); log(`[${d.level||"log"}] ${d.msg||ev.data}`);} catch{ log(`[log] ${ev.data}`);} });
     es.addEventListener("done", ev=>{
       const d=JSON.parse(ev.data);
       $("#statusText").textContent="Done";
-      log(`[done] ${compact(d)}`);
+      log(`[done] ${JSON.stringify(d)}`);
       const absJson=new URL(d.file, location.origin).toString();
       const playerUrl=`player.html?bake=${encodeURIComponent(absJson)}`;
       $("#doneLinks").innerHTML=`<a href="${absJson}" target="_blank">Open JSON</a> <a href="${playerUrl}" target="_blank">Open in Player</a>`;
