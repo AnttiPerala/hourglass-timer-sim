@@ -1,289 +1,468 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/>
+  <meta charset="utf-8" />
   <title>Baker</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    :root{
-      --bg:#fff; --fg:#111; --muted:#666; --line:#e6e6e6; --accent:#0a7;
-      --radius:12px; --tooltip:#111; --tooltipText:#fff;
+    :root {
+      --bg:#fafafa; --fg:#111; --muted:#666; --line:#e5e7eb;
+      --accent:#111; --accent-2:#0ea5e9; --chip:#111; --chip-fg:#fff;
     }
-    *{box-sizing:border-box}
-    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--fg)}
-    header{max-width:1100px;margin:20px auto 0;padding:0 16px 12px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}
-    main{max-width:1100px;margin:0 auto;padding:16px}
-    .card{border:1px solid var(--line);border-radius:var(--radius);padding:14px;background:#fff}
-    h1{font-size:28px;margin:6px 0 8px}
-    h2{font-size:16px;margin:0 0 8px;color:var(--muted);font-weight:600}
-    .grid{display:grid;gap:12px;grid-template-columns: repeat(auto-fit, minmax(320px, 1fr))}
-    .field{display:grid;grid-template-columns: 1fr auto;align-items:center;gap:10px}
-    .lbl{display:flex;align-items:center;gap:8px;color:#333;font-weight:600}
-    input[type="number"], select{width:180px;padding:8px 10px;border:1px solid #ccc;border-radius:10px}
-    .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px}
-    button{padding:10px 14px;border:0;border-radius:12px;cursor:pointer;color:#fff;background:#111}
-    button.secondary{background:#666}
-    .bar{height:12px;background:#f3f3f3;border-radius:999px;overflow:hidden;border:1px solid var(--line)}
-    .bar>div{height:100%;width:0;background:var(--accent);transition:width .2s}
-    .status{font-weight:700}
-    pre#log{
-      background:#0f0f0f;color:#eaeaea;padding:10px;border-radius:12px;
-      max-height:260px;overflow-y:auto;overflow-x:hidden;font-size:12px;line-height:1.35;
-      white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      color: var(--fg); background: var(--bg);
     }
-    .links a{margin-right:12px}
-    .section{display:grid;gap:12px}
-    .hint{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#e9eef5;color:#334;font-size:12px;cursor:help;flex:0 0 18px;user-select:none}
-    .hint::after{content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 10px);transform:translateX(-50%);min-width:260px;max-width:420px;padding:10px 12px;border-radius:10px;background:var(--tooltip);color:var(--tooltipText);font-weight:500;font-size:12px;line-height:1.3;border:1px solid #00000022;box-shadow:0 10px 20px #00000026;opacity:0;pointer-events:none;transition:opacity .12s ease, transform .12s ease;transform-origin:top center;white-space:normal;z-index:10}
-    .hint::before{content:"";position:absolute;left:50%;top:100%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:7px solid var(--tooltip);opacity:0;transition:opacity .12s ease}
-    .hint:hover::after,.hint:focus-visible::after{opacity:1;transform:translateX(-50%) translateY(0)}
-    .hint:hover::before,.hint:focus-visible::before{opacity:1}
-    .logbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
-    .logbar button{padding:6px 10px;font-size:12px;border-radius:8px}
-    .logbar label{font-size:12px;color:#666;display:flex;align-items:center;gap:6px}
+    .wrap { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 28px; margin: 0 0 18px; }
+    a { color: var(--accent-2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .card { background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow: 0 1px 2px rgba(0,0,0,.04); padding:18px; margin: 10px 0 18px; }
+    .grid {
+      display:grid;
+      grid-template-columns: repeat(12, minmax(0,1fr));
+      gap:14px 18px;
+    }
+    .col-6 { grid-column: span 6; }
+    .col-4 { grid-column: span 4; }
+    .col-3 { grid-column: span 3; }
+    .col-2 { grid-column: span 2; }
+    .col-12 { grid-column: 1/-1; }
+    @media (max-width: 720px) {
+      .col-6, .col-4, .col-3, .col-2 { grid-column: 1/-1; }
+    }
+
+    label { display:block; font-weight:600; font-size:13px; color:#222; margin-bottom:6px; }
+    .tip { font-weight:400; color:var(--muted); margin-left:6px; cursor:help; }
+    input[type="text"], input[type="number"], select {
+      width:100%; height:36px; border:1px solid var(--line); border-radius:8px; padding:6px 10px; font:inherit;
+      background:#fff;
+    }
+    input[type="checkbox"] { transform: translateY(2px); }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+
+    .btn {
+      background:#111; color:#fff; border:0; border-radius:10px; padding:8px 14px; font-weight:600; cursor:pointer;
+    }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .btn.secondary { background:#f3f4f6; color:#111; }
+    .btn.ghost { background:#e5e7eb; color:#111; }
+    .chip { display:inline-block; background:var(--chip); color:var(--chip-fg); padding:2px 8px; border-radius:14px; font-size:12px; }
+
+    .status { display:flex; align-items:center; gap:10px; }
+    progress { width:100%; height:12px; appearance: none; }
+    progress::-webkit-progress-bar { background:#eee; border-radius:6px; }
+    progress::-webkit-progress-value { background:#111; border-radius:6px; }
+    .muted { color: var(--muted); }
+
+    .log {
+      background:#0b0b0b; color:#f3f3f3; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      border-radius:10px; padding:10px; max-height:240px; overflow:auto; border:1px solid #1f2937;
+      white-space:pre-wrap; word-break:break-word;
+    }
+    .log-controls { display:flex; gap:8px; align-items:center; margin-top:8px; }
+    .right { margin-left:auto; }
+    .small { font-size:12px; }
+
+    .section-title { font-weight:700; color:#111; margin:6px 0 8px; }
+    .side-link { float:right; font-weight:600; margin-top:4px; }
   </style>
 </head>
 <body>
-<header>
-  <h1>Baker</h1>
-  <span style="margin-left:auto"><a href="index.html">Bakes Index</a></span>
-</header>
+  <div class="wrap">
+    <h1 style="display:flex;align-items:center;gap:12px;">
+      Baker
+      <a class="side-link" href="/public/index.html">Bakes Index</a>
+    </h1>
 
-<main class="section">
-  <form id="frm" class="section">
-    <div class="card section">
-      <h2>Simulation</h2>
+    <!-- Simulation -->
+    <div class="card">
+      <div class="section-title">Simulation</div>
       <div class="grid">
-        <div class="field"><div class="lbl">duration (s)
-          <span class="hint" data-tip="Base simulation time. Target frames = duration × fps. If ‘noFlush’ is OFF, sim may continue (until top empties) up to flushMaxSec.">?</span></div>
-          <input name="duration" type="number" min="1" step="1" value="10"/></div>
+        <div class="col-3">
+          <label>duration (s) <span class="tip" title="How long to simulate before optional flush continuation. Target frames = duration × fps.">?</span></label>
+          <input id="duration" type="number" min="1" step="1" value="120" />
+        </div>
+        <div class="col-3">
+          <label>fps <span class="tip" title="Physics/recording framerate in frames per second.">?</span></label>
+          <input id="fps" type="number" min="1" step="1" value="60" />
+        </div>
+        <div class="col-3">
+          <label>grains <span class="tip" title="Number of circular grains (bodies) seeded in the top bulb.">?</span></label>
+          <input id="grains" type="number" min="1" step="1" value="300" />
+        </div>
+        <div class="col-3">
+          <label>full (0–1) <span class="tip" title="Top-bulb fill ratio (0..1). Currently used to bias placement density.">?</span></label>
+          <input id="full" type="number" step="0.1" value="0.1" />
+        </div>
 
-        <div class="field"><div class="lbl">fps
-          <span class="hint" data-tip="Simulation/output frame rate. Higher = smoother & larger files. Typical: 60.">?</span></div>
-          <input name="fps" type="number" min="1" step="1" value="60"/></div>
+        <div class="col-3">
+          <label>bulb (px) <span class="tip" title="Half-width of bulbs far from the neck. Larger → rounder/wider bulbs.">?</span></label>
+          <input id="bulb" type="number" step="1" value="220" />
+        </div>
+        <div class="col-3">
+          <label>neck (px) <span class="tip" title="Narrowest width of the neck opening (inner-to-inner). Use ≥ 5× grain radius for smooth flow.">?</span></label>
+          <input id="neck" type="number" step="1" value="35" />
+        </div>
+        <div class="col-3">
+          <label>H (px) <span class="tip" title="Half-height of one bulb (so full glass is ~2×H).">?</span></label>
+          <input id="H" type="number" step="1" value="500" />
+        </div>
+        <div class="col-3">
+          <label>r (grain radius) <span class="tip" title="Visual and physical radius of grains in pixels.">?</span></label>
+          <input id="r" type="number" step="0.5" value="3" />
+        </div>
 
-        <div class="field"><div class="lbl">grains
-          <span class="hint" data-tip="Number of circular grains seeded in the top bulb. More = heavier CPU & bigger output.">?</span></div>
-          <input name="grains" type="number" min="1" step="1" value="500"/></div>
+        <div class="col-3">
+          <label>bounce (0–1) <span class="tip" title="Grain restitution. Higher = bouncier. Typical 0.05–0.25.">?</span></label>
+          <input id="bounce" type="number" step="0.01" value="0.12" />
+        </div>
+        <div class="col-3">
+          <label>friction (0–1) <span class="tip" title="Surface friction for grains. Lower reduces sticking/arching. Typical 0.01–0.05.">?</span></label>
+          <input id="friction" type="number" step="0.01" value="0.02" />
+        </div>
+        <div class="col-3">
+          <label>k (stiffness-ish) <span class="tip" title="Reserved for future constraints; currently unused.">?</span></label>
+          <input id="k" type="number" step="0.1" value="0.1" />
+        </div>
+        <div class="col-3">
+          <label>tilt (deg) <span class="tip" title="Applies tilt to gravity only (container stays upright visually). Small values (1–3°) help flow.">?</span></label>
+          <input id="tiltDeg" type="number" step="0.1" value="1.5" />
+        </div>
 
-        <div class="field"><div class="lbl">full (0–1)
-          <span class="hint" data-tip="Initial fill fraction. 1.0 = fully dense top bulb; lower = sparser initial packing.">?</span></div>
-          <input name="full" type="number" min="0" max="1" step="0.05" value="1"/></div>
+        <div class="col-3">
+          <label>c1 (curve) <span class="tip" title="Hourglass wall curvature coefficient 1. Adjusts bulge near mid-heights.">?</span></label>
+          <input id="c1" type="number" step="0.1" value="0.2" />
+        </div>
+        <div class="col-3">
+          <label>c2 (curve) <span class="tip" title="Hourglass wall curvature coefficient 2. Adjusts taper near the neck.">?</span></label>
+          <input id="c2" type="number" step="0.1" value="0.5" />
+        </div>
+        <div class="col-3">
+          <label>slat (px) <span class="tip" title="Optional thin bar across the neck (0 = off).">?</span></label>
+          <input id="slat" type="number" step="1" value="0" />
+        </div>
+        <div class="col-3">
+          <label>wall thickness (px) <span class="tip" title="Physical wall thickness. It grows outward only, keeping the inner profile accurate.">?</span></label>
+          <input id="wallThickness" type="number" step="1" value="10" />
+        </div>
 
-        <div class="field"><div class="lbl">neck (px)
-          <span class="hint" data-tip="Throat width at y=0. Rule of thumb: ≥ 5×r to avoid jams.">?</span></div>
-          <input name="neck" type="number" min="4" step="1" value="12"/></div>
-
-        <div class="field"><div class="lbl">H (px)
-          <span class="hint" data-tip="Half-height of the glass. Simulation y spans −H … +H.">?</span></div>
-          <input name="H" type="number" min="100" step="10" value="500"/></div>
-
-        <div class="field"><div class="lbl">bulb (px)
-          <span class="hint" data-tip="Half-width at the widest part of each bulb (interior).">?</span></div>
-          <input name="bulb" type="number" min="50" step="10" value="220"/></div>
-
-        <div class="field"><div class="lbl">r (grain radius)
-          <span class="hint" data-tip="Physical radius of each grain (world px). Player renders grains at this radius.">?</span></div>
-          <input name="r" type="number" min="1" step="0.5" value="2"/></div>
-
-        <div class="field"><div class="lbl">bounce (0–1)
-          <span class="hint" data-tip="Grain restitution/bounciness. 0 = no bounce; 1 = perfectly elastic. Typical sand: 0.05–0.2.">?</span></div>
-          <input name="bounce" type="number" min="0" max="1" step="0.01" value="0.12"/></div>
-
-        <div class="field"><div class="lbl">k (stiffness-ish)
-          <span class="hint" data-tip="Reserved for future tuning; unused in current build.">?</span></div>
-          <input name="k" type="number" step="0.05" value="0.1"/></div>
-
-        <div class="field"><div class="lbl">tilt (deg)
-          <span class="hint" data-tip="Tilt angle (affects gravity direction only; visuals stay upright). 1–3° helps reduce clogs.">?</span></div>
-          <input name="tiltDeg" type="number" step="0.5" value="0"/></div>
-
-        <div class="field"><div class="lbl">c1 (curve)
-          <span class="hint" data-tip="Curvature control #1. 0 = linear; positive gently rounds bulbs.">?</span></div>
-          <input name="c1" type="number" step="0.1" value="0.0"/></div>
-
-        <div class="field"><div class="lbl">c2 (curve)
-          <span class="hint" data-tip="Curvature control #2. Adds subtle S-bias near mid-bulb.">?</span></div>
-          <input name="c2" type="number" step="0.1" value="0.0"/></div>
-
-        <div class="field"><div class="lbl">slat (px)
-          <span class="hint" data-tip="Optional horizontal bar across the neck. 0 disables.">?</span></div>
-          <input name="slat" type="number" step="1" value="0"/></div>
-
-        <div class="field"><div class="lbl">wall thickness (px)
-          <span class="hint" data-tip="Thickness of the hourglass wall bodies. 0 = auto (≈ max(12, 4×r)). Grows outward only (interior stays exactly on the curve).">?</span></div>
-          <input name="wallThickness" type="number" min="0" step="1" value="0"/></div>
-
-        <div class="field"><div class="lbl">flushMaxSec
-          <span class="hint" data-tip="If ‘noFlush’ is OFF, sim may continue after duration to finish the pour (until top empties) but not beyond this many seconds.">?</span></div>
-          <input name="flushMaxSec" type="number" step="1" value="15"/></div>
-
-        <div class="field"><div class="lbl">noFlush
-          <span class="hint" data-tip="If ON, stop exactly at duration × fps (don’t continue to finish the pour).">?</span></div>
-          <input name="noFlush" type="checkbox"/></div>
-      </div>
-    </div>
-
-    <div class="card section">
-      <h2>Sleep / Output</h2>
-      <div class="grid">
-        <div class="field"><div class="lbl">sleepVel (px/s)
-          <span class="hint" data-tip="Below this speed for sleepMs, grains (below the neck only) are culled to reduce cost & shrink sparse output.">?</span></div>
-          <input name="sleepVel" type="number" step="0.1" value="2"/></div>
-
-        <div class="field"><div class="lbl">sleepMs (ms)
-          <span class="hint" data-tip="Milliseconds below sleepVel before removal (only applies to grains below the neck).">?</span></div>
-          <input name="sleepMs" type="number" step="10" value="500"/></div>
-
-        <div class="field"><div class="lbl">outputMode
-          <span class="hint" data-tip="dense: every grain every frame (.bin). sparse: only changed grains per frame (.sbin).">?</span></div>
-          <select name="outputMode">
-            <option value="dense">dense</option>
-            <option value="sparse" selected>sparse</option>
-          </select></div>
-
-        <div class="field"><div class="lbl">quantization Q
-          <span class="hint" data-tip="Positions quantized to 16-bit via q = round((pos+offset)×Q). Higher Q = finer precision (and larger files). Also sets sparse threshold (~1/Q px).">?</span></div>
-          <input name="Q" type="number" step="1" value="32"/>
+        <div class="col-3">
+          <label>flushMaxSec <span class="tip" title="After reaching duration, continue until top empties or this many seconds elapse (if noFlush is off).">?</span></label>
+          <input id="flushMaxSec" type="number" step="1" value="15" />
+        </div>
+        <div class="col-3">
+          <label>noFlush <span class="tip" title="Stop exactly at duration (don’t keep simulating until top empties).">?</span></label>
+          <div class="row">
+            <input id="noFlush" type="checkbox" />
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="actions">
-      <button type="submit">Start bake</button>
-      <button type="button" class="secondary" id="btnList">List bakes</button>
-      <button type="button" class="secondary" id="btnReset">Reset saved settings</button>
-      <span id="saveHint" style="color:#666;font-size:12px">Settings auto-saved</span>
+    <!-- Anti-clog (simple master toggle that dials the helper down to zero) -->
+    <div class="card">
+      <div class="section-title">Anti-clog</div>
+      <div class="grid">
+        <div class="col-3">
+          <label>unclog assist <span class="tip" title="Vibration, pulses and invisible sweepers that gently clear end-of-flow jams. Turn off for a purely physical run.">?</span></label>
+          <input id="unclog" type="checkbox" checked />
+        </div>
+      </div>
     </div>
-  </form>
 
-  <section id="live" style="display:none;">
-    <p class="status">Status: <span id="statusText">Starting…</span></p>
-    <div class="bar"><div id="bar"></div></div>
-    <p><span id="pct">0%</span> — <span id="frames">0</span>/<span id="target">0</span></p>
-    <pre id="log"></pre>
-    <div class="logbar">
-      <button type="button" class="secondary" id="btnClearLog">Clear</button>
-      <button type="button" class="secondary" id="btnCopyLog">Copy</button>
-      <label><input type="checkbox" id="chkAutoscroll" checked> autoscroll</label>
-      <span class="muted" style="margin-left:auto;font-size:12px">Long lines wrap; showing last <span id="logCap">500</span> lines</span>
+    <!-- Sleep / Output -->
+    <div class="card">
+      <div class="section-title">Sleep / Output</div>
+      <div class="grid">
+        <div class="col-3">
+          <label>sleepVel (px/s) <span class="tip" title="Below this speed, a grain starts accumulating sleep time (only deep in bottom bulb).">?</span></label>
+          <input id="sleepVel" type="number" step="0.1" value="2" />
+        </div>
+        <div class="col-3">
+          <label>sleepMs (ms) <span class="tip" title="How long a grain must stay slow before it’s removed/frozen (only far below the neck).">?</span></label>
+          <input id="sleepMs" type="number" step="50" value="1500" />
+        </div>
+        <div class="col-3">
+          <label>outputMode <span class="tip" title="dense = every grain every frame (bin). sparse = only changed grains per frame (sbin) for smaller files.">?</span></label>
+          <select id="outputMode">
+            <option value="sparse">sparse</option>
+            <option value="dense">dense</option>
+          </select>
+        </div>
+        <div class="col-3">
+          <label>quantization Q <span class="tip" title="Units per pixel in binary stream. Higher = finer precision & larger files. Typical 16–64.">?</span></label>
+          <input id="Q" type="number" step="1" value="32" />
+        </div>
+      </div>
     </div>
-    <div class="links" id="doneLinks" style="margin-top:8px"></div>
-  </section>
-</main>
 
-<script>
-window.addEventListener("DOMContentLoaded", () => {
-  const $ = (s)=>document.querySelector(s);
+    <!-- Actions -->
+    <div class="row" style="gap:10px;">
+      <button id="start" class="btn">Start bake</button>
+      <button id="list" class="btn secondary">List bakes</button>
+      <button id="resetSaved" class="btn ghost">Reset saved settings</button>
+      <span class="muted small">Settings auto-saved</span>
+    </div>
 
-  // Locale-friendly numeric parser (accepts “1,5” or “1.5”)
-  function parseNum(str, fallback=0){
-    if (str == null) return fallback;
-    const s = String(str).trim().replace(/\s+/g,"").replace(",",".");
-    const n = Number(s);
-    return Number.isFinite(n) ? n : fallback;
-  }
+    <!-- Status -->
+    <div class="card">
+      <div class="section-title">Status: <span id="statusText">Idle</span></div>
+      <div class="row" style="gap:8px;margin-top:6px;">
+        <progress id="progressBar" value="0" max="100"></progress>
+        <span id="progressInfo" class="muted small">0% — 0/0</span>
+      </div>
+      <div class="row log-controls">
+        <button id="clearLog" class="btn ghost">Clear</button>
+        <button id="copyLog" class="btn ghost">Copy</button>
+        <label class="small right"><input id="autoscroll" type="checkbox" checked /> autoscroll</label>
+      </div>
+      <div id="log" class="log" aria-live="polite"></div>
 
-  function formToJSON(form){
-    const o = {};
-    for (const el of Array.from(form.elements)) {
-      if (!el.name) continue;
-      if (el.type === "checkbox") o[el.name] = el.checked;
-      else if (el.type === "number") o[el.name] = parseNum(el.value, parseNum(el.defaultValue, 0));
-      else if (el.tagName === "SELECT") o[el.name] = el.value;
-      else o[el.name] = el.value;
+      <div id="doneLinks" class="row" style="gap:10px; margin-top:10px; display:none;">
+        <a id="openJson" class="btn secondary" href="#" target="_blank" rel="noopener">Open JSON</a>
+        <a id="openPlayer" class="btn" href="#" target="_blank" rel="noopener">Open in Player</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+
+    const FIELDS = [
+      "duration","fps","grains","full","bulb","neck","H","r","bounce","friction","k","tiltDeg",
+      "c1","c2","slat","wallThickness","flushMaxSec","noFlush",
+      "sleepVel","sleepMs","outputMode","Q","unclog"
+    ];
+    const KEY = "bakerSettings.v3";
+
+    // ---------- load/save settings ----------
+    function readSettingsFromUI() {
+      const obj = {};
+      for (const k of FIELDS) {
+        const el = $(k);
+        if (!el) continue;
+        if (el.type === "checkbox") obj[k] = el.checked;
+        else if (el.tagName === "SELECT") obj[k] = el.value;
+        else obj[k] = el.value;
+      }
+      return obj;
     }
-    return o;
-  }
-
-  // persistence
-  const STORAGE_KEY = "hourglass.baker.v1";
-  function applySettings(form,obj){
-    if(!obj) return;
-    for(const [k,v] of Object.entries(obj)){
-      const el=form.elements[k];
-      if(!el) continue;
-      if (el.type==="checkbox") el.checked=!!v;
-      else el.value = (v ?? el.defaultValue ?? "").toString();
+    function applySettingsToUI(obj) {
+      if (!obj) return;
+      for (const k of FIELDS) {
+        const el = $(k);
+        if (!el || !(k in obj)) continue;
+        if (el.type === "checkbox") el.checked = !!obj[k];
+        else if (el.tagName === "SELECT") el.value = String(obj[k]);
+        else el.value = String(obj[k]);
+      }
     }
-  }
-  function saveSettings(){
-    try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(formToJSON($("#frm"))));
-      const h=$("#saveHint"); if(h){ h.textContent="Settings saved"; setTimeout(()=>h.textContent="Settings auto-saved",800); }
-    }catch{}
-  }
-  function loadSettings(){
-    try{
-      const raw=localStorage.getItem(STORAGE_KEY);
-      if(raw) applySettings($("#frm"), JSON.parse(raw));
-    }catch{}
-  }
-  loadSettings();
+    function saveSettings() {
+      try { localStorage.setItem(KEY, JSON.stringify(readSettingsFromUI())); } catch {}
+    }
+    function loadSettings() {
+      try {
+        const raw = localStorage.getItem(KEY);
+        if (raw) { const obj = JSON.parse(raw); applySettingsToUI(obj); }
+      } catch {}
+    }
+    loadSettings();
+    for (const k of FIELDS) { const el = $(k); if (el) el.addEventListener("change", saveSettings); }
 
-  // log view (wrapped, capped, autoscroll)
-  const LOG_MAX = 500;
-  $("#logCap").textContent = LOG_MAX;
-  const logLines = [];
-  let logDirty = false;
-  let autoScroll = true;
-  const logEl = $("#log");
-  $("#chkAutoscroll").addEventListener("change", (e)=>{ autoScroll = e.target.checked; });
-  $("#btnClearLog").addEventListener("click", ()=>{ logLines.length = 0; logDirty = true; });
-  $("#btnCopyLog").addEventListener("click", async ()=>{ try { await navigator.clipboard.writeText(logLines.join("\n")); } catch {} });
-  function log(msg){
-    const ts = new Date().toLocaleTimeString();
-    logLines.push(`[${ts}] ${msg}`);
-    if (logLines.length > LOG_MAX) logLines.splice(0, logLines.length - LOG_MAX);
-    logDirty = true;
-  }
-  setInterval(()=>{ if(!logDirty) return; logEl.textContent = logLines.join("\n"); if (autoScroll) logEl.scrollTop = logEl.scrollHeight; logDirty=false; }, 100);
-
-  // buttons
-  $("#btnList").addEventListener("click", ()=>location.href="index.html");
-  $("#btnReset").addEventListener("click", ()=>{ localStorage.removeItem(STORAGE_KEY); $("#frm").reset(); saveSettings(); });
-
-  // submit → POST /api/bake and subscribe SSE
-  $("#frm").addEventListener("submit", async (e)=>{
-    e.preventDefault(); saveSettings();
-    $("#live").style.display="block"; $("#doneLinks").innerHTML=""; $("#statusText").textContent="Submitting…";
-    const body = formToJSON(e.currentTarget);
-    try{
-      const res = await fetch("/api/bake",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-      if(!res.ok){ const txt=await res.text(); $("#statusText").textContent=`Error: HTTP ${res.status}`; log(`HTTP ${res.status}: ${txt}`); return; }
-      const {id} = await res.json(); $("#statusText").textContent=`Queued (id ${id})`; subscribe(id);
-    }catch(err){ $("#statusText").textContent="Request failed"; log(String(err)); }
-  });
-
-  function subscribe(id){
-    const es = new EventSource(`/api/stream/${id}`);
-    let target=0;
-
-    es.addEventListener("hello", ()=>log("connected"));
-    es.addEventListener("ping", ()=>{});
-    es.addEventListener("meta", ev=>{ try{ log(`[meta] ${ev.data}`);}catch{ log("[meta] (parse error)"); } });
-    es.addEventListener("progress", ev=>{
-      const d=JSON.parse(ev.data); target=d.target||target;
-      $("#frames").textContent=d.frame; $("#target").textContent=target;
-      const pct=target?Math.round(100*d.frame/target):0; $("#pct").textContent=pct+"%"; $("#bar").style.width=pct+"%";
-      $("#statusText").textContent="Baking…";
+    $("resetSaved").addEventListener("click", () => {
+      localStorage.removeItem(KEY);
+      location.reload();
     });
-    es.addEventListener("log", ev=>{ try{ const d=JSON.parse(ev.data); log(`[${d.level||"log"}] ${d.msg||ev.data}`);} catch{ log(`[log] ${ev.data}`);} });
-    es.addEventListener("done", ev=>{
-      const d=JSON.parse(ev.data);
-      $("#statusText").textContent="Done";
-      log(`[done] ${JSON.stringify(d)}`);
-      const absJson=new URL(d.file, location.origin).toString();
-      const playerUrl=`player.html?bake=${encodeURIComponent(absJson)}`;
-      $("#doneLinks").innerHTML=`<a href="${absJson}" target="_blank">Open JSON</a> <a href="${playerUrl}" target="_blank">Open in Player</a>`;
+
+    $("list").addEventListener("click", () => location.href = "/public/index.html");
+
+    // ---------- logging ----------
+    const logEl = $("log");
+    const maxLines = 500;
+    function addLog(kind, msg) {
+      const now = new Date().toLocaleTimeString();
+      const line = document.createElement("div");
+      line.textContent = `[${now}]${kind ? " ["+kind+"]" : ""} ${msg}`;
+      logEl.appendChild(line);
+      while (logEl.children.length > maxLines) logEl.removeChild(logEl.firstChild);
+      const auto = $("autoscroll");
+      if (!auto || auto.checked) logEl.scrollTop = logEl.scrollHeight;
+    }
+    $("clearLog").addEventListener("click", () => { logEl.innerHTML = ""; });
+    $("copyLog").addEventListener("click", async () => {
+      const text = Array.from(logEl.childNodes).map(n => n.textContent).join("\n");
+      try { await navigator.clipboard.writeText(text); addLog("info","copied"); } catch { addLog("err","copy failed"); }
     });
-    es.addEventListener("exit", ev=>{
-      const d=JSON.parse(ev.data);
-      log(`exit code=${d.code} signal=${d.signal}`);
+
+    // ---------- build payload ----------
+    function toNum(v, def) { const n = Number(v); return Number.isFinite(n) ? n : def; }
+    function buildPayload() {
+      const s = readSettingsFromUI();
+      const p = {
+        duration: toNum(s.duration, 120),
+        fps: toNum(s.fps, 60),
+        grains: toNum(s.grains, 300),
+        full: toNum(s.full, 0.1),
+        bulb: toNum(s.bulb, 220),
+        neck: toNum(s.neck, 35),
+        H: toNum(s.H, 500),
+        r: toNum(s.r, 3),
+        bounce: toNum(s.bounce, 0.12),
+        friction: toNum(s.friction, 0.02),
+        k: toNum(s.k, 0.1),
+        tiltDeg: toNum(s.tiltDeg, 1.5),
+        c1: toNum(s.c1, 0.2),
+        c2: toNum(s.c2, 0.5),
+        slat: toNum(s.slat, 0),
+        wallThickness: toNum(s.wallThickness, 10),
+        flushMaxSec: toNum(s.flushMaxSec, 15),
+        noFlush: !!s.noFlush,
+        sleepVel: toNum(s.sleepVel, 2),
+        sleepMs: toNum(s.sleepMs, 1500),
+        outputMode: s.outputMode || "sparse",
+        Q: toNum(s.Q, 32)
+      };
+
+      // If unclog assist OFF → dial helpers to zero via flags the worker understands
+      if (!s.unclog) {
+        Object.assign(p, {
+          vibeAmpDeg: 0,
+          antiClogPulseEvery: 9999,
+          antiClogPeriod: 9999,
+          rescueTopCount: 0,
+          flusherCount: 0,
+          noFlushers: true
+        });
+      }
+      return p;
+    }
+
+    // ---------- SSE handling, robust target computation ----------
+    let es = null;
+    let currentFrame = 0;
+    let expectedFrames = 0; // meta.duration * meta.fps
+    let targetFrames = 0;   // best-known target
+    let doneFrames = 0;
+    let lastId = null;
+
+    function setStatus(s) { $("statusText").textContent = s; }
+    function fmt(n) { return (n || 0).toLocaleString(); }
+    function updateProgressUI() {
+      const bar = $("progressBar");
+      const info = $("progressInfo");
+      const t = targetFrames || expectedFrames || doneFrames || 0;
+      const f = currentFrame || 0;
+      const pct = t > 0 ? Math.min(100, Math.floor((f / t) * 100)) : 0;
+      bar.max = Math.max(1, t);
+      bar.value = Math.min(bar.max, f);
+      info.textContent = `${pct}% — ${fmt(f)}/${fmt(t)}`;
+    }
+
+    function attachBakeStream(id) {
+      if (es) { try { es.close(); } catch {} es = null; }
+      lastId = id;
+      currentFrame = 0; expectedFrames = 0; targetFrames = 0; doneFrames = 0;
+      setStatus("Baking…");
+      updateProgressUI();
+      $("doneLinks").style.display = "none";
+
+      es = new EventSource(`/api/stream/${encodeURIComponent(id)}`);
+
+      es.addEventListener("hello", () => addLog("", "connected"));
+
+      es.addEventListener("meta", (e) => {
+        try {
+          const m = JSON.parse(e.data);
+          const est = Math.round((Number(m.fps) || 0) * (Number(m.duration) || 0));
+          if (est > 0) expectedFrames = est;
+          if (targetFrames <= 0 && expectedFrames > 0) targetFrames = expectedFrames;
+          updateProgressUI();
+          addLog("meta", e.data);
+        } catch {}
+      });
+
+      es.addEventListener("progress", (e) => {
+        try {
+          const p = JSON.parse(e.data);
+          currentFrame = Number(p.frame) || currentFrame;
+          const t = Number(p.target) || 0;
+          if (t > 0) targetFrames = t;
+          if (targetFrames <= 0 && expectedFrames > 0) targetFrames = expectedFrames;
+          if (targetFrames <= 0 && doneFrames > 0) targetFrames = doneFrames;
+          updateProgressUI();
+        } catch {}
+      });
+
+      es.addEventListener("log", (e) => {
+        try { const j = JSON.parse(e.data); addLog(j.level || "log", j.msg || ""); }
+        catch { addLog("log", e.data || ""); }
+      });
+
+      es.addEventListener("done", (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          doneFrames = Number(d.frames) || doneFrames;
+          if (targetFrames <= 0) targetFrames = doneFrames;
+          currentFrame = Math.max(currentFrame, doneFrames);
+          updateProgressUI();
+          setStatus("Done");
+
+          const jsonUrl = d.file.startsWith("bakes/") ? ("/" + d.file) : d.file;
+          $("openJson").href = jsonUrl;
+          $("openPlayer").href = `/public/player.html?bake=${encodeURIComponent(jsonUrl)}`;
+          $("doneLinks").style.display = "flex";
+
+          addLog("done", `file=${d.file}, frames=${d.frames}, fps=${d.fps}, lastCrossFrame=${d.lastCrossFrame}`);
+        } catch {}
+      });
+
+      es.addEventListener("exit", (e) => {
+        try { const j = JSON.parse(e.data); addLog("exit", `code=${j.code} signal=${j.signal}`); } catch {}
+        es.close();
+      });
+
+      es.onerror = () => {
+        addLog("es", `error (readyState=${es.readyState})`);
+        setStatus("Stream error");
+      };
+    }
+
+    // ---------- wire up Start ----------
+    $("start").addEventListener("click", async () => {
+      const payload = buildPayload();
+      saveSettings();
+      addLog("info", "POST /api/bake …");
+      setStatus("Starting…");
+      $("doneLinks").style.display = "none";
+
+      try {
+        const res = await fetch("/api/bake", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          addLog("err", `POST /api/bake ${res.status}`);
+          setStatus(`Error ${res.status}`);
+          return;
+        }
+        const { id } = await res.json();
+        addLog("info", `id=${id}`);
+        attachBakeStream(id);
+      } catch (err) {
+        addLog("err", String(err));
+        setStatus("Network error");
+      }
     });
-    es.onerror=()=>{ $("#statusText").textContent="SSE error"; log("[es] error"); };
-  }
-});
-</script>
+
+    // Prevent accidental hanging SSE on page load
+    setStatus("Idle");
+  })();
+  </script>
 </body>
 </html>

@@ -17,12 +17,9 @@ if (!fs.existsSync(INDEX_PATH)) fs.writeFileSync(INDEX_PATH, "[]", "utf-8");
 
 app.use(express.json({ limit: "2mb" }));
 
-/* =========================
-   In-memory SSE task state
-   ========================= */
+// SSE state
 const tasks = new Map(); // id -> {backlog:[], clients:Set, proc}
 const makeEvent = (name, data) => `event: ${name}\n` + `data: ${JSON.stringify(data)}\n\n`;
-
 function addBacklog(id, name, payload) {
   const t = tasks.get(id);
   if (!t) return;
@@ -34,9 +31,7 @@ function addBacklog(id, name, payload) {
   }
 }
 
-/* ===============  API  =============== */
-
-// Health probe
+// Health
 app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // Start a bake
@@ -56,23 +51,26 @@ app.post("/api/bake", (req, res) => {
       "--H", String(p.H ?? 500),
       "--bulb", String(p.bulb ?? 220),
       "--r", String(p.r ?? 2),
-      "--bounce", String(p.bounce ?? 0.12),            // NEW: bounciness
+      "--bounce", String(p.bounce ?? 0.12),
+      "--friction", String(p.friction ?? 0.02), // NEW
       "--k", String(p.k ?? 0.1),
       "--tiltDeg", String(p.tiltDeg ?? 0),
       "--c1", String(p.c1 ?? 0.0),
       "--c2", String(p.c2 ?? 0.0),
       "--slat", String(p.slat ?? 0),
-      "--wallThickness", String(p.wallThickness ?? 0), // outward-only walls
+      "--wallThickness", String(p.wallThickness ?? 0),
 
       "--sleepVel", String(p.sleepVel ?? 2),
       "--sleepMs", String(p.sleepMs ?? 500),
       "--flushMaxSec", String(p.flushMaxSec ?? 15),
       ...(p.noFlush ? ["--noFlush"] : []),
 
+      // Invisible sweepers toggle (default ON)
+      ...(p.useFlushers === false ? ["--noFlushers"] : []),
+
       "--outDir", "bakes",
       "--outputMode", String(p.outputMode ?? "dense"),
       "--Q", String(p.Q ?? 32),
-
       "--progress"
     ];
 
@@ -85,13 +83,10 @@ app.post("/api/bake", (req, res) => {
       const s = line.toString().trim();
       if (!s) return;
       if (s.startsWith("BAKE ")) {
-        try {
-          const obj = JSON.parse(s.slice(5));
+        try { const obj = JSON.parse(s.slice(5));
           if (obj && obj.event) addBacklog(id, obj.event, obj);
           else addBacklog(id, "log", { level: "info", msg: s });
-        } catch {
-          addBacklog(id, "log", { level: "warn", msg: s });
-        }
+        } catch { addBacklog(id, "log", { level: "warn", msg: s }); }
       } else {
         addBacklog(id, "log", { level: isErr ? "err" : "info", msg: s });
       }
@@ -100,23 +95,13 @@ app.post("/api/bake", (req, res) => {
     let outBuf = "";
     child.stdout.on("data", (chunk) => {
       outBuf += chunk.toString();
-      let idx;
-      while ((idx = outBuf.indexOf("\n")) >= 0) {
-        const ln = outBuf.slice(0, idx);
-        outBuf = outBuf.slice(idx + 1);
-        onLine(ln, false);
-      }
+      let idx; while ((idx = outBuf.indexOf("\n")) >= 0) { const ln = outBuf.slice(0, idx); outBuf = outBuf.slice(idx + 1); onLine(ln, false); }
     });
 
     let errBuf = "";
     child.stderr.on("data", (chunk) => {
       errBuf += chunk.toString();
-      let idx;
-      while ((idx = errBuf.indexOf("\n")) >= 0) {
-        const ln = errBuf.slice(0, idx);
-        errBuf = errBuf.slice(idx + 1);
-        onLine(ln, true);
-      }
+      let idx; while ((idx = errBuf.indexOf("\n")) >= 0) { const ln = errBuf.slice(0, idx); errBuf = errBuf.slice(idx + 1); onLine(ln, true); }
     });
 
     child.on("exit", (code, signal) => {
@@ -129,14 +114,11 @@ app.post("/api/bake", (req, res) => {
   }
 });
 
-// SSE stream — return 404 for unknown IDs (no phantom streams)
+// SSE (404 for unknown id)
 app.get("/api/stream/:id", (req, res) => {
   const { id } = req.params;
   const t = tasks.get(id);
-  if (!t) {
-    res.status(404).json({ error: "unknown task id" });
-    return;
-  }
+  if (!t) return res.status(404).json({ error: "unknown task id" });
 
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
@@ -148,12 +130,11 @@ app.get("/api/stream/:id", (req, res) => {
   t.clients.add(res);
   res.write(makeEvent("hello", { id, now: Date.now() }));
   for (const evt of t.backlog) res.write(makeEvent(evt.name, evt.data));
-
   const hb = setInterval(() => { try { res.write(makeEvent("ping", { t: Date.now() })); } catch {} }, 15_000);
   req.on("close", () => { clearInterval(hb); t.clients.delete(res); });
 });
 
-// Index JSON
+// Index JSON passthrough
 app.get("/api/index", (_req, res) => {
   try {
     const raw = fs.readFileSync(INDEX_PATH, "utf-8");
@@ -164,7 +145,7 @@ app.get("/api/index", (_req, res) => {
   }
 });
 
-/* ============== HTML & static ============== */
+// HTML + static
 function sendHtml(res, file) { res.setHeader("Cache-Control", "no-cache"); res.sendFile(path.join(PUB_DIR, file)); }
 app.get("/baker.html", (_req, res) => sendHtml(res, "baker.html"));
 app.get("/player.html", (_req, res) => sendHtml(res, "player.html"));
@@ -174,7 +155,7 @@ app.use("/public", express.static(PUB_DIR, { extensions: ["html"] }));
 app.use("/bakes", express.static(BAKES_DIR));
 app.use("/", express.static(PUB_DIR));
 
-/* ============== errors ============== */
+// errors
 app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ error: "Internal Server Error" });
@@ -184,4 +165,3 @@ app.listen(PORT, () => {
   console.log(`Hourglass server listening on http://localhost:${PORT}/`);
   console.log(`Baker UI: http://localhost:${PORT}/baker.html`);
 });
-// vim: set ts=2 sw=2 et:

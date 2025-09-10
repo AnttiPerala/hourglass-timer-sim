@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "duration": 10,
+    "fps": 60,
+    "grains": 1000,
+    "full": 0.5,
+    "neck": 40,
+    "H": 500,
+    "bulb": 220,
+    "r": 3,
+    "bounce": 0.9,
+    "friction": 0.01,
+    "tiltDeg": 2,
+    "slat": -2,
+    "c1": 0.8,
+    "c2": 0.2,
+    "Q": 32,
+    "mode": "sparse",
+    "wallThickness": 20,
+    "sleepOnlyBelowFrac": 0.58,
+    "antiClog": {
+      "vibeAmpBaseDeg": 0.25,
+      "vibeAmpMaxDeg": 4.5,
+      "vibeHz": 2,
+      "unclogDelaySec": 0.3,
+      "rescueTopCount": 25,
+      "pulseEverySec": 0.12,
+      "pulseZoneY": 30,
+      "pulseTopOnly": true,
+      "pulseForce": 0.00001,
+      "rescueDownBias": 0.000004
+    },
+    "flushers": {
+      "useFlushers": true,
+      "flusherCount": 2,
+      "flusherR": 4.5,
+      "flusherAmp": 14,
+      "flusherYTop": -9,
+      "flusherHz": 1.7,
+      "flusherTopCount": 40,
+      "sweepDepthY": 18,
+      "sweepDownSec": 0.35,
+      "sweepHoldSec": 0.1,
+      "sweepCooldownSec": 0.4,
+      "flusherEdgeGap": 1.2000000000000002
+    },
+    "antiStick": {
+      "stuckKickAfterMs": 1000,
+      "stuckVelPx": 0.18,
+      "stuckDistPx": 0.25,
+      "stuckKickF": 0.00003,
+      "stuckKickInwardF": 0.00002,
+      "stuckKickCooldownMs": 350
+    }
+  },
+  "frames": 4055,
+  "fps": 60,
+  "lastCrossFrame": null,
+  "sbin": "bakes/hourglass_10s_neck40_g1000_sparse_Q32_mfe6b2fc-jpdtmp.sbin"
+}
