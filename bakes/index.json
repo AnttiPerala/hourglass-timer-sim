@@ -1,5 +1,77 @@
 [
   {
+    "file": "bakes/hourglass_10s_neck20_g100_sparse_Q32_mfdqxfgn-v4hnqh.json",
+    "label": "hourglass_10s_neck20_g100_sparse_Q32_mfdqxfgn-v4hnqh",
+    "duration": 10,
+    "fps": 60,
+    "grains": 100,
+    "neck": 20,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 600,
+    "date": "2025-09-10T08:57:16.038Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck20_g100_sparse_Q32_mfdqubm6-2wllj2.json",
+    "label": "hourglass_10s_neck20_g100_sparse_Q32_mfdqubm6-2wllj2",
+    "duration": 10,
+    "fps": 60,
+    "grains": 100,
+    "neck": 20,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 600,
+    "date": "2025-09-10T08:54:51.065Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck16_g100_sparse_Q32_mfdqt6fp-n0r82r.json",
+    "label": "hourglass_10s_neck16_g100_sparse_Q32_mfdqt6fp-n0r82r",
+    "duration": 10,
+    "fps": 60,
+    "grains": 100,
+    "neck": 16,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 1690,
+    "date": "2025-09-10T08:53:58.895Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck16_g100_sparse_Q32_mfdqsh2t-m3biqv.json",
+    "label": "hourglass_10s_neck16_g100_sparse_Q32_mfdqsh2t-m3biqv",
+    "duration": 10,
+    "fps": 60,
+    "grains": 100,
+    "neck": 16,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 675,
+    "date": "2025-09-10T08:53:24.816Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck16_g100_sparse_Q32_mfdqrvst-gb3nj4.json",
+    "label": "hourglass_10s_neck16_g100_sparse_Q32_mfdqrvst-gb3nj4",
+    "duration": 10,
+    "fps": 60,
+    "grains": 100,
+    "neck": 16,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 600,
+    "date": "2025-09-10T08:52:56.732Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck12_g100_sparse_Q32_mfdqq0mh-x2phsw.json",
+    "label": "hourglass_10s_neck12_g100_sparse_Q32_mfdqq0mh-x2phsw",
+    "duration": 10,
+    "fps": 60,
+    "grains": 100,
+    "neck": 12,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 600,
+    "date": "2025-09-10T08:51:29.678Z"
+  },
+  {
     "file": "bakes/hourglass_10s_neck12_g40_sparse_Q32_mfdqfwi9-0fxi3n.json",
     "label": "hourglass_10s_neck12_g40_sparse_Q32_mfdqfwi9-0fxi3n",
     "duration": 10,

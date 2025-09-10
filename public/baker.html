@@ -5,106 +5,340 @@
   <title>Hourglass Baker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:980px;margin:20px auto;padding:0 16px;}
-    header{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
-    fieldset{border:1px solid #ddd;border-radius:8px;padding:12px;margin:12px 0;}
-    legend{padding:0 6px;color:#444;}
-    label{display:grid;grid-template-columns:220px 1fr;gap:8px;align-items:center;margin:6px 0;}
-    input[type="number"], input[type="text"], select{width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-    button{padding:10px 14px;border:0;border-radius:10px;background:#111;color:#fff;cursor:pointer;}
-    button.secondary{background:#555;}
-    .bar{height:10px;background:#eee;border-radius:6px;overflow:hidden;margin:8px 0;}
-    .bar>div{height:100%;width:0;background:#0a7;transition:width .2s;}
-    pre{background:#0b0b0b;color:#e6e6e6;padding:10px;border-radius:8px;max-height:260px;overflow:auto;}
-    .status{font-weight:600}
-    .links a{margin-right:12px;}
+    :root{
+      --bg:#fff; --fg:#111; --muted:#666; --line:#e6e6e6; --accent:#0a7;
+      --radius:12px; --tooltip:#111; --tooltipText:#fff;
+    }
+    *{box-sizing:border-box}
+    body{
+      font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      margin:0; background:var(--bg); color:var(--fg);
+    }
+    header{
+      max-width:1100px; margin:20px auto 0; padding:0 16px 12px;
+      display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line);
+    }
+    main{max-width:1100px; margin:0 auto; padding:16px;}
+    .card{
+      border:1px solid var(--line); border-radius:var(--radius); padding:14px; background:#fff;
+    }
+    h1{font-size:28px; margin:6px 0 8px}
+    h2{font-size:16px; margin:0 0 8px; color:var(--muted); font-weight:600}
+    .grid{
+      display:grid; gap:12px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+    .field{
+      display:grid; grid-template-columns: 1fr auto; align-items:center; gap:10px;
+    }
+    .field > .lbl{display:flex; align-items:center; gap:8px; color:#333; font-weight:600}
+    input[type="number"], input[type="text"], select{
+      width:180px; padding:8px 10px; border:1px solid #ccc; border-radius:10px;
+    }
+    .actions{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:8px}
+    button{
+      padding:10px 14px; border:0; border-radius:12px; cursor:pointer; color:#fff; background:#111;
+    }
+    button.secondary{background:#666}
+    .bar{height:12px; background:#f3f3f3; border-radius:999px; overflow:hidden; border:1px solid var(--line)}
+    .bar>div{height:100%; width:0; background:var(--accent); transition:width .2s}
+    .status{font-weight:700}
+    pre{
+      background:#0f0f0f; color:#eaeaea; padding:10px; border-radius:12px;
+      max-height:260px; overflow:auto; font-size:12px; line-height:1.35;
+    }
+    .links a{margin-right:12px}
+    .section{display:grid; gap:12px}
+
+    /* Tooltip */
+    .hint{
+      position:relative; display:inline-flex; align-items:center; justify-content:center;
+      width:18px; height:18px; border-radius:50%; background:#e9eef5; color:#334; font-size:12px;
+      cursor:help; flex:0 0 18px; user-select:none;
+    }
+    .hint::after{
+      content:attr(data-tip);
+      position:absolute; left:50%; top:calc(100% + 10px); transform:translateX(-50%);
+      min-width:260px; max-width:420px; padding:10px 12px; border-radius:10px;
+      background:var(--tooltip); color:var(--tooltipText); font-weight:500; font-size:12px; line-height:1.3;
+      border:1px solid #00000022; box-shadow:0 10px 20px #00000026;
+      opacity:0; pointer-events:none; transition:opacity .12s ease, transform .12s ease;
+      transform-origin:top center;
+      white-space:normal; z-index:10;
+    }
+    .hint::before{
+      content:""; position:absolute; left:50%; top:100%; transform:translateX(-50%);
+      width:0; height:0; border-left:7px solid transparent; border-right:7px solid transparent;
+      border-top:7px solid var(--tooltip); opacity:0; transition:opacity .12s ease;
+    }
+    .hint:hover::after, .hint:focus-visible::after{opacity:1; transform:translateX(-50%) translateY(0)}
+    .hint:hover::before, .hint:focus-visible::before{opacity:1}
+    @media (max-width:560px){
+      .hint::after{left:auto; right:0; transform:none}
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>Hourglass Baker</h1>
-    <div style="margin-left:auto"><a href="index.html">Bakes Index</a></div>
+    <h1>Baker</h1>
+    <span style="margin-left:auto"><a href="index.html">Bakes Index</a></span>
   </header>
 
-  <form id="frm">
-    <fieldset>
-      <legend>Simulation</legend>
-      <div class="row">
-        <div>
-          <label>duration (s) <input name="duration" type="number" min="1" step="1" value="10"></label>
-          <label>fps <input name="fps" type="number" min="1" step="1" value="60"></label>
-          <label>grains <input name="grains" type="number" min="1" step="1" value="500"></label>
-          <label>full (0–1) <input name="full" type="number" min="0" max="1" step="0.05" value="1"></label>
-          <label>neck (px) <input name="neck" type="number" min="4" step="1" value="12"></label>
-          <label>H (px) <input name="H" type="number" min="100" step="10" value="500"></label>
-          <label>bulb (px) <input name="bulb" type="number" min="50" step="10" value="220"></label>
-          <label>r (grain radius) <input name="r" type="number" min="1" step="0.5" value="2"></label>
-        </div>
-        <div>
-          <label>k (stiffness-ish) <input name="k" type="number" step="0.05" value="0.1"></label>
-          <label>tilt (deg) <input name="tiltDeg" type="number" step="0.5" value="0"></label>
-          <label>c1 (curve) <input name="c1" type="number" step="0.1" value="0.0"></label>
-          <label>c2 (curve) <input name="c2" type="number" step="0.1" value="0.0"></label>
-          <label>slat (px) <input name="slat" type="number" step="1" value="0"></label>
-          <label>flushMaxSec <input name="flushMaxSec" type="number" step="1" value="15"></label>
-          <label><input name="noFlush" type="checkbox"> noFlush</label>
+  <main class="section">
+    <form id="frm" class="section">
+      <div class="card section">
+        <h2>Simulation</h2>
+        <div class="grid">
+          <div class="field">
+            <div class="lbl">
+              duration (s)
+              <span class="hint" tabindex="0" data-tip="Base simulation time. Target frames = duration × fps. If ‘noFlush’ is OFF, the sim may continue after this to finish the pour (until top is empty) or until flushMaxSec is reached.">?</span>
+            </div>
+            <input name="duration" type="number" min="1" step="1" value="10" title="Seconds to simulate (base). May extend if finishing the pour unless ‘noFlush’ is checked.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              fps
+              <span class="hint" tabindex="0" data-tip="Frames per second for both simulation and output. Higher fps = smoother playback and larger files. Typical: 60.">?</span>
+            </div>
+            <input name="fps" type="number" min="1" step="1" value="60" title="Frames per second for sim/output.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              grains
+              <span class="hint" tabindex="0" data-tip="Number of circular grains (sand) seeded in the top bulb. More grains = heavier CPU and bigger output.">?</span>
+            </div>
+            <input name="grains" type="number" min="1" step="1" value="500" title="How many grains to simulate.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              full (0–1)
+              <span class="hint" tabindex="0" data-tip="Initial fill fraction. 1.0 = full top bulb for the chosen grain count; lower values imply sparser initial fill.">?</span>
+            </div>
+            <input name="full" type="number" min="0" max="1" step="0.05" value="1" title="Initial fill fraction of top bulb.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              neck (px)
+              <span class="hint" tabindex="0" data-tip="Throat width at y=0. Should be much larger than 2×r to avoid jams (rule of thumb: ≥ 5×r). Smaller necks produce slower flow and more arching.">?</span>
+            </div>
+            <input name="neck" type="number" min="4" step="1" value="12" title="Throat width at center (y=0).">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              H (px)
+              <span class="hint" tabindex="0" data-tip="Half-height of the hourglass. Simulation space ranges from y=-H (top) to y=+H (bottom).">?</span>
+            </div>
+            <input name="H" type="number" min="100" step="10" value="500" title="Half-height per bulb (world units).">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              bulb (px)
+              <span class="hint" tabindex="0" data-tip="Half-width at the widest part of each bulb. Total interior width is ~2×bulb at the ends (minus a small padding).">?</span>
+            </div>
+            <input name="bulb" type="number" min="50" step="10" value="220" title="Half-width at bulb widest point.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              r (grain radius)
+              <span class="hint" tabindex="0" data-tip="Physical radius of each grain in world pixels. The player renders grains at this radius. Larger r needs a proportionally larger neck.">?</span>
+            </div>
+            <input name="r" type="number" min="1" step="0.5" value="2" title="Grain radius (world px).">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              k (stiffness-ish)
+              <span class="hint" tabindex="0" data-tip="Reserved for future stiffness/constraint tuning. Not used by the current engine dynamics; safe to ignore.">?</span>
+            </div>
+            <input name="k" type="number" step="0.05" value="0.1" title="(Reserved) Not used in current build.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              tilt (deg)
+              <span class="hint" tabindex="0" data-tip="Hourglass tilt in degrees. Applies to gravity orientation (and walls), creating biased flow to reduce clogs. Try 1–3° for realism.">?</span>
+            </div>
+            <input name="tiltDeg" type="number" step="0.5" value="0" title="Tilt angle in degrees.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              c1 (curve)
+              <span class="hint" tabindex="0" data-tip="Wall curvature control #1. 0 = linear walls; positive values gently round the bulbs.">?</span>
+            </div>
+            <input name="c1" type="number" step="0.1" value="0.0" title="Curvature coefficient #1 (roundness).">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              c2 (curve)
+              <span class="hint" tabindex="0" data-tip="Wall curvature control #2. Adds a subtle S-shape bias around mid-bulb. Use small values; 0 for linear.">?</span>
+            </div>
+            <input name="c2" type="number" step="0.1" value="0.0" title="Curvature coefficient #2 (S-bias).">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              slat (px)
+              <span class="hint" tabindex="0" data-tip="Optional horizontal bar across the neck (px length). 0 disables. Useful for experiments with extra restriction.">?</span>
+            </div>
+            <input name="slat" type="number" step="1" value="0" title="Horizontal bar at neck (px). 0 = off.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              flushMaxSec
+              <span class="hint" tabindex="0" data-tip="When ‘noFlush’ is OFF, the sim will continue after duration until the top bulb empties or this time limit is reached—whichever comes first.">?</span>
+            </div>
+            <input name="flushMaxSec" type="number" step="1" value="15" title="Max extra seconds to finish pour when noFlush is OFF.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              noFlush
+              <span class="hint" tabindex="0" data-tip="If ON, stop exactly at duration × fps regardless of remaining grains above the neck. If OFF, attempt to finish the pour (bounded by flushMaxSec).">?</span>
+            </div>
+            <input name="noFlush" type="checkbox" title="Stop exactly at duration (ignore finishing the pour).">
+          </div>
         </div>
       </div>
-    </fieldset>
 
-    <fieldset>
-      <legend>Sleep / Freeze</legend>
-      <div class="row">
-        <div>
-          <label>sleepVel (px/s) <input name="sleepVel" type="number" step="0.1" value="2"></label>
-          <label>sleepMs (ms) <input name="sleepMs" type="number" step="10" value="500"></label>
-        </div>
-        <div>
-          <label>outputMode
-            <select name="outputMode">
+      <div class="card section">
+        <h2>Sleep / Output</h2>
+        <div class="grid">
+          <div class="field">
+            <div class="lbl">
+              sleepVel (px/s)
+              <span class="hint" tabindex="0" data-tip="Per-grain low-velocity threshold. If a grain’s speed stays below this value long enough (sleepMs), it is culled (removed) to reduce sim cost and compress output.">?</span>
+            </div>
+            <input name="sleepVel" type="number" step="0.1" value="2" title="Low-speed threshold for sleep removal.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              sleepMs (ms)
+              <span class="hint" tabindex="0" data-tip="How long (in milliseconds) a grain must remain below sleepVel before it is removed (or frozen, if you change the worker code).">?</span>
+            </div>
+            <input name="sleepMs" type="number" step="10" value="500" title="Milliseconds below sleepVel before removal.">
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              outputMode
+              <span class="hint" tabindex="0" data-tip="dense: store every grain’s (x,y) each frame into a .bin (largest). sparse: store only moved grains per frame into a .sbin (much smaller). Player auto-detects both.">?</span>
+            </div>
+            <select name="outputMode" title="dense = .bin (full), sparse = .sbin (changed-only)">
               <option value="dense">dense</option>
               <option value="sparse" selected>sparse</option>
             </select>
-          </label>
-          <label>quantization Q <input name="Q" type="number" step="1" value="32"></label>
+          </div>
+
+          <div class="field">
+            <div class="lbl">
+              quantization Q
+              <span class="hint" tabindex="0" data-tip="Positions are quantized to unsigned 16-bit via q = round((pos + offset) × Q). Higher Q ⇒ finer precision but larger files; also affects sparse change threshold (≈ 1/Q world px). Typical: 16–64.">?</span>
+            </div>
+            <input name="Q" type="number" step="1" value="32" title="Quantization factor (precision vs size).">
+          </div>
         </div>
       </div>
-    </fieldset>
 
-    <div style="display:flex; gap:10px; align-items:center;">
-      <button type="submit">Start bake</button>
-      <button type="button" class="secondary" id="btnList">List bakes</button>
-    </div>
-  </form>
+      <div class="actions">
+        <button type="submit">Start bake</button>
+        <button type="button" class="secondary" id="btnList">List bakes</button>
+        <button type="button" class="secondary" id="btnReset">Reset saved settings</button>
+        <span id="saveHint" style="color:#666; font-size:12px;">Settings auto-saved</span>
+      </div>
+    </form>
 
-  <section id="live" style="display:none;">
-    <p class="status">Status: <span id="statusText">Starting…</span></p>
-    <div class="bar"><div id="bar"></div></div>
-    <p><span id="pct">0%</span> — <span id="frames">0</span>/<span id="target">0</span></p>
-    <pre id="log"></pre>
-    <div class="links" id="doneLinks"></div>
-  </section>
+    <section id="live" style="display:none;">
+      <p class="status">Status: <span id="statusText">Starting…</span></p>
+      <div class="bar"><div id="bar"></div></div>
+      <p><span id="pct">0%</span> — <span id="frames">0</span>/<span id="target">0</span></p>
+      <pre id="log"></pre>
+      <div class="links" id="doneLinks"></div>
+    </section>
+  </main>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
+// Convert form to JSON with proper types
 function formToJSON(form) {
   const data = new FormData(form);
   const o = {};
   for (const [k, v] of data.entries()) {
     if (o[k] !== undefined) continue;
     const el = form.elements[k];
-    if (el?.type === "checkbox") o[k] = el.checked;
-    else if (el?.type === "number") o[k] = Number(v);
+    if (!el) continue;
+    if (el.type === "checkbox") o[k] = el.checked;
+    else if (el.type === "number") o[k] = Number(v);
     else o[k] = v;
   }
   return o;
 }
 
+// --- Persist Baker form settings ---
+const STORAGE_KEY = "hourglass.baker.v1";
+
+function applySettings(form, obj){
+  if (!obj) return;
+  for (const [k, v] of Object.entries(obj)){
+    const el = form.elements[k];
+    if (!el) continue;
+    if (el.type === "checkbox") el.checked = !!v;
+    else if (el.tagName === "SELECT") el.value = String(v);
+    else el.value = v; // number/text
+  }
+}
+
+function saveSettings(){
+  try {
+    const o = formToJSON($("#frm"));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(o));
+    const hint = $("#saveHint");
+    if (hint){ hint.textContent = "Settings saved"; setTimeout(()=>hint.textContent="Settings auto-saved", 800); }
+  } catch(e) { console.warn("persist save failed", e); }
+}
+
+function loadSettings(){
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    applySettings($("#frm"), o);
+  } catch(e) { console.warn("persist load failed", e); }
+}
+
+// Load saved settings on page load
+loadSettings();
+
+// Auto-save on any field change
+$("#frm").addEventListener("input", saveSettings);
+$("#frm").addEventListener("change", saveSettings);
+
+// Buttons
+$("#btnList").addEventListener("click", () => location.href = "index.html");
+$("#btnReset").addEventListener("click", () => {
+  localStorage.removeItem(STORAGE_KEY);
+  $("#frm").reset();        // back to HTML defaults
+  saveSettings();           // store defaults so reload reflects them
+});
+
+// Submit → start bake + also save current settings once
 $("#frm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  saveSettings();
+
   $("#live").style.display = "block";
   $("#doneLinks").innerHTML = "";
   $("#statusText").textContent = "Submitting…";
@@ -130,8 +364,6 @@ $("#frm").addEventListener("submit", async (e) => {
     $("#log").textContent += String(err) + "\n";
   }
 });
-
-$("#btnList").addEventListener("click", () => location.href = "index.html");
 
 function subscribe(id) {
   const es = new EventSource(`/api/stream/${id}`);
