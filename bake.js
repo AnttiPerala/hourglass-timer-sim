@@ -32,7 +32,7 @@ const neck         = num("neck", 12);
 const H            = num("H", 500);
 const bulb         = num("bulb", 220);
 const r            = num("r", 2);
-const k            = num("k", 0.1);
+const k            = num("k", 0.1); // reserved
 const tiltDeg      = num("tiltDeg", 0);
 const c1           = num("c1", 0.0);
 const c2           = num("c2", 0.0);
@@ -48,7 +48,7 @@ const progress     = bool("progress");
 const sparseThresholdPx = num("sparseThresholdPx", 1 / Q);
 
 // anti-clog helpers (tunable)
-const vibeAmpDeg     = num("vibeAmpDeg", 0.25);       // set 0 to disable
+const vibeAmpDeg     = num("vibeAmpDeg", 0.25);       // 0 to disable
 const vibeHz         = num("vibeHz", 2);
 const antiClog       = !bool("noAntiClog");           // on by default
 const antiClogPeriod = num("antiClogPeriod", 0.5);    // seconds without a cross before a nudge
@@ -63,22 +63,28 @@ const WORLD_H = H * 2 + 40;
 const engine = Engine.create();
 engine.positionIterations = 8;
 engine.velocityIterations = 8;
-// keep default gravity scale (~0.001); orient by tilt + micro-vibe
 const baseTiltRad = tiltDeg * Math.PI / 180;
+// gravity is oriented by tilt + optional micro-vibration
 engine.gravity.x = Math.sin(baseTiltRad);
 engine.gravity.y = Math.cos(baseTiltRad);
 
-// ---- Hourglass geometry (fixed) ----
+// Helpers to convert world -> glass local (unrotate by base tilt).
+// Local y′=0 is the neck plane; y′<0 == top bulb, y′>0 == bottom bulb.
+const sinT = Math.sin(baseTiltRad);
+const cosT = Math.cos(baseTiltRad);
+const localY = (p) => (-p.x * sinT) + (p.y * cosT);
+
+// ---- Hourglass geometry (correct profile) ----
 function xHalf(y) {
   const ay = Math.abs(y);
-  const t = Math.min(1, ay / H);          // 0 at neck, 1 at bulb ends
-  const bump = t * (1 - t);               // 0 at neck & ends, peak mid-bulb
+  const t = Math.min(1, ay / H);     // 0 at neck, 1 at bulb ends
+  const bump = t * (1 - t);          // 0 at neck & ends, peak mid-bulb
   let s = t + c1 * bump + c2 * (2 * bump * (t - 0.5));
   s = Math.max(0, Math.min(1, s));
   return (neck / 2) + (bulb - neck / 2) * s;
 }
 
-// Build walls with rounded segment joins & zero friction to reduce sticking
+// Build walls (zero friction, rounded joins)
 function buildWalls() {
   const segs = 160;
   const thickness = 6;
@@ -103,7 +109,7 @@ function buildWalls() {
       const lx0 = -xm0, lx1 = -xm1;
       const cx = (lx0 + lx1) / 2;
       const cy = (y0 + y1) / 2;
-      const len = Math.hypot(lx1 - lx0, y1 - y0) + 0.6; // slight overlap
+      const len = Math.hypot(lx1 - lx0, y1 - y0) + 0.6;
       const ang = Math.atan2(y1 - y0, lx1 - lx0);
       bodies.push(Bodies.rectangle(cx, cy, len, thickness, wallOpts(ang)));
     }
@@ -123,7 +129,7 @@ function buildWalls() {
   bodies.push(Bodies.rectangle(0, yMin - 10, WORLD_W, thickness, { isStatic: true, friction:0, frictionStatic:0 }));
   bodies.push(Bodies.rectangle(0, yMax + 10, WORLD_W, thickness, { isStatic: true, friction:0, frictionStatic:0 }));
 
-  // rotate the container to base tilt; gravity will micro-vibrate around it
+  // rotate container to base tilt
   bodies.forEach(b => Body.rotate(b, baseTiltRad));
   bodies.forEach(b => World.add(engine.world, b));
 }
@@ -146,6 +152,7 @@ while (placed < grainsN && tries < maxTries) {
     frictionStatic: 0.0,
     density: 0.001
   });
+  // reject if overlaps existing
   let ok = true;
   for (const g of grains) {
     const dx = g.position.x - circle.position.x;
@@ -154,7 +161,7 @@ while (placed < grainsN && tries < maxTries) {
   }
   if (ok) {
     circle._sleepAccum = 0;
-    circle._prevY = circle.position.y;
+    circle._prevLocalY = localY(circle.position);
     grains.push(circle);
     World.add(engine.world, circle);
     placed++;
@@ -165,7 +172,7 @@ while (placed < grainsN) {
     restitution:0.1, friction:0.02, frictionStatic:0.0, density:0.001
   });
   circle._sleepAccum = 0;
-  circle._prevY = circle.position.y;
+  circle._prevLocalY = localY(circle.position);
   grains.push(circle);
   World.add(engine.world, circle);
   placed++;
@@ -210,14 +217,15 @@ if (outputMode === "dense") {
 
 const targetFrames = Math.round(duration * fps);
 let frames = 0;
-let lastCrossFrame = null; // when top bulb empty
-let lastFlowFrame = 0;     // last time a grain crossed y=0
+let lastCrossFrame = null; // first frame when top bulb is empty (local y′<0 none)
+let lastFlowFrame = 0;     // last time a grain crossed the neck (y′: <0 -> >=0)
 
+// Top empty detection in local coordinates
 function topBulbEmpty() {
-  const thresh = -neck * 0.5;
   for (let i = 0; i < grains.length; i++) {
     const g = grains[i];
-    if (!g._removed && g.position.y < thresh) return false;
+    if (g._removed) continue;
+    if (localY(g.position) < 0 - r * 0.5) return false; // a tiny slack
   }
   return true;
 }
@@ -266,7 +274,8 @@ function nudgeNeck() {
   for (const g of grains) {
     if (g._removed) continue;
     const p = g.position;
-    if (Math.abs(p.y) < yBand && Math.abs(p.x) < xLimit) {
+    const yLoc = localY(p);
+    if (Math.abs(yLoc) < yBand && Math.abs(p.x) < xLimit) {
       const fx = (Math.random() - 0.5) * antiClogKick;
       Body.applyForce(g, p, { x: fx, y: 0 });
     }
@@ -277,14 +286,21 @@ function nudgeNeck() {
 const runner = Runner.create({ isFixed: true, delta: DT });
 
 function stepOnce() {
-  // pre-step: update sleep timers & cache prevY
+  // pre-step: update sleep timers (ONLY for grains below the neck) & cache prev local y
   for (let i = 0; i < grains.length; i++) {
     const g = grains[i];
     if (g._removed) continue;
+    const yLoc = localY(g.position);
     const speed = Math.hypot(g.velocity.x, g.velocity.y);
-    if (speed < sleepVel) g._sleepAccum += DT * 1000; else g._sleepAccum = 0;
-    if (g._sleepAccum >= sleepMs) { Composite.remove(engine.world, g); g._removed = true; continue; }
-    g._prevY = g.position.y;
+
+    // NEVER sleep grains above the neck (y′ < 0). Only bottom (y′ >= 0) can sleep.
+    if (yLoc >= 0) {
+      if (speed < sleepVel) g._sleepAccum += DT * 1000; else g._sleepAccum = 0;
+      if (g._sleepAccum >= sleepMs) { Composite.remove(engine.world, g); g._removed = true; continue; }
+    } else {
+      g._sleepAccum = 0; // keep them active
+    }
+    g._prevLocalY = yLoc;
   }
 
   // micro-vibration in gravity to break arches (around the rotated container)
@@ -297,18 +313,19 @@ function stepOnce() {
 
   Engine.update(engine, DT * 1000);
 
-  // detect a cross event (y from <0 to >=0)
+  // detect a cross event (local y′ from <0 to >=0)
   let flowed = false;
   for (const g of grains) {
     if (g._removed) continue;
-    if (g._prevY < 0 && g.position.y >= 0) { flowed = true; break; }
+    const yLoc = localY(g.position);
+    if (g._prevLocalY < 0 && yLoc >= 0) { flowed = true; break; }
   }
   if (flowed) lastFlowFrame = frames;
 
-  // anti-clog nudge if no flow for a bit
+  // anti-clog nudge if no flow for a while
   if (antiClog && (frames - lastFlowFrame) > Math.round(antiClogPeriod * fps)) {
     nudgeNeck();
-    lastFlowFrame = frames; // avoid spamming
+    lastFlowFrame = frames;
   }
 
   recordFrame();
@@ -327,7 +344,7 @@ function loop() {
   if (noFlush) {
     done = true;
   } else {
-    if (lastCrossFrame == null && topBulbEmpty()) lastCrossFrame = frames;
+    if (lastCrossFrame == null && topBulbEmpty()) lastCrossFrame = frames; // first frame top is empty in LOCAL coords
     if (topBulbEmpty() || Date.now() >= tMax) {
       done = true;
     } else {

@@ -8,24 +8,49 @@
     body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:980px;margin:20px auto;padding:0 16px;}
     canvas{border:1px solid #ccc;border-radius:8px;display:block;margin:8px 0;max-width:100%;image-rendering:pixelated;}
     .ctrls{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
-    input[type="range"]{width:300px;}
     .msg{padding:8px 12px;border-radius:8px;background:#fee;border:1px solid #f99;display:none}
+    input[type="number"]{width:120px; padding:6px 8px; border:1px solid #ccc; border-radius:8px;}
+    button{padding:8px 12px; border:0; border-radius:8px; background:#111; color:#fff; cursor:pointer;}
+    button.secondary{background:#666}
+    .muted{color:#666}
+    .clock{font-variant-numeric: tabular-nums; font-weight:700;}
+    .clock-label{color:#444}
+    .clock-box{display:flex; gap:14px; align-items:center; flex-wrap:wrap;}
   </style>
 </head>
 <body>
   <h1>Hourglass Player</h1>
-  <div>
+  <div class="ctrls">
     <label>Open JSON: <input type="file" id="file" accept="application/json"></label>
+    <span id="lcInfo" class="muted" style="margin-left:auto"></span>
   </div>
   <p id="err" class="msg"></p>
   <canvas id="cv" width="720" height="720"></canvas>
+
   <div class="ctrls">
     <button id="play">Play</button>
-    <button id="pause">Pause</button>
+    <button id="pause" class="secondary">Pause</button>
     <label>Frame: <input id="slider" type="range" min="0" max="0" step="1" value="0"></label>
     <span id="finfo">0/0</span>
-    <span id="fpsInfo">FPS: <span id="fpsVal">0</span></span>
+    <span>Base FPS: <b id="fpsVal">0</b></span>
+    <span>Effective FPS: <b id="effFpsVal">0</b></span>
     <button id="jump">Jump to lastCrossFrame</button>
+  </div>
+
+  <div class="ctrls">
+    <label>Align last-cross to (s):
+      <input id="alignSec" type="number" step="0.1" placeholder="e.g. 60">
+    </label>
+    <button id="align60" class="secondary">60s</button>
+    <button id="alignReset" class="secondary">Reset alignment</button>
+    <span class="muted">Playback rate scales so lastCross lands exactly at this time (if known).</span>
+  </div>
+
+  <div class="clock-box">
+    <span class="clock-label">Time left (to last-cross):</span>
+    <span id="clockLC" class="clock">—</span>
+    <span class="clock-label">Time left (to end):</span>
+    <span id="clockEnd" class="clock">—</span>
   </div>
 
 <script>
@@ -39,12 +64,14 @@ let meta=null, frames=0, fps=0, lastCrossFrame=null, Q=32, bulb=220, H=500, neck
 let mode="dense";
 let denseData=null; // Uint16Array
 let sparse=null;    // sparse reader
+let alignSec=null;  // seconds to align lastCross to
+let tick=null, cur=0, playing=false;
 
 // ---- same curve as bake.js ----
 function xHalf(y) {
   const ay = Math.abs(y);
-  const t = Math.min(1, ay / H);          // 0 at neck, 1 at bulb ends
-  const bump = t * (1 - t);               // 0 at neck & ends, peak mid-bulb
+  const t = Math.min(1, ay / H);
+  const bump = t * (1 - t);
   let s = t + c1 * bump + c2 * (2 * bump * (t - 0.5));
   s = Math.max(0, Math.min(1, s));
   return (neck / 2) + (bulb - neck / 2) * s;
@@ -109,7 +136,7 @@ async function loadJSON(urlOrFile){
     c2 = meta.c2 ?? 0;
     slat = meta.slat ?? 0;
     tiltDeg = meta.tiltDeg ?? 0;
-    grainR = meta.r ?? 2;      // <-- respect baked grain radius
+    grainR = meta.r ?? 2;      // respect baked grain radius
 
     mode = meta.mode || (json.bin ? "dense" : json.sbin ? "sparse" : "legacy");
     $("#fpsVal").textContent = fps;
@@ -136,6 +163,15 @@ async function loadJSON(urlOrFile){
     } else {
       showErr("No data/u16/bin/sbin provided in bake — using empty buffer");
     }
+
+    // lastCross info
+    const tActual = (lastCrossFrame != null) ? (lastCrossFrame / fps) : null;
+    $("#lcInfo").textContent = (tActual != null)
+      ? `lastCross at frame ${lastCrossFrame} (${tActual.toFixed(2)} s)`
+      : `lastCross not available`;
+
+    updateEffFpsDisplay();
+    updateClocks();
   } catch (e) {
     showErr("Failed to load: " + e.message);
   }
@@ -189,16 +225,15 @@ function drawFrame(f){
   // Outline first
   drawOutline(s);
 
-  // Grains — respect meta.r (world units)
+  // Grains — radius in world units (scales with s)
   const drawOne = (x, y) => {
     ctx.beginPath();
-    ctx.arc(x, y, grainR, 0, Math.PI*2); // radius in world units; scales with s
+    ctx.arc(x, y, grainR, 0, Math.PI*2);
     ctx.fill();
   };
 
   ctx.fillStyle = "#111";
   if (denseData){
-    // prefer meta.grains if present; fallback to derived
     const grains = (meta && meta.grains) ? meta.grains : (denseData.length / Math.max(1, frames*2));
     const base = f * grains * 2;
     for (let i=0;i<grains;i++){
@@ -216,31 +251,124 @@ function drawFrame(f){
       drawOne(x, y);
     }
   }
-
   ctx.restore();
 }
 
-let tick=null, cur=0, playing=false;
-function play(){ if (playing || frames<=0) return; playing=true; tick = setInterval(()=>{
-  cur = (cur+1) % frames;
-  $("#slider").value = cur;
-  $("#finfo").textContent = `${cur}/${frames-1}`;
-  drawFrame(cur);
-}, 1000/Math.max(1,fps)); }
-function pause(){ playing=false; clearInterval(tick); }
+// --- Alignment logic ---
+function getPlaybackRate(){
+  if (alignSec == null || !isFinite(alignSec) || alignSec <= 0 || lastCrossFrame == null) return 1;
+  const tActual = lastCrossFrame / fps;
+  const m = tActual / alignSec; // scale so lastCross lands at alignSec
+  return m > 0 ? m : 1;
+}
+function updateEffFpsDisplay(){
+  const eff = fps * getPlaybackRate();
+  $("#effFpsVal").textContent = eff.toFixed(2);
+}
+
+// --- Digital clocks ---
+function fmtClock(s){
+  if (!isFinite(s) || s < 0) s = 0;
+  const mm = Math.floor(s / 60);
+  const ss = Math.floor(s % 60);
+  const tenths = Math.floor((s - Math.floor(s)) * 10);
+  return `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}.${tenths}`;
+}
+function updateClocks(){
+  const eff = fps * getPlaybackRate();
+  if (frames > 0 && eff > 0){
+    // to last-cross
+    if (lastCrossFrame != null){
+      const remFramesLC = Math.max(0, lastCrossFrame - cur);
+      const secLC = remFramesLC / eff;
+      $("#clockLC").textContent = fmtClock(secLC);
+    } else {
+      $("#clockLC").textContent = "—";
+    }
+    // to end
+    const remFramesEnd = Math.max(0, (frames - 1) - cur);
+    const secEnd = remFramesEnd / eff;
+    $("#clockEnd").textContent = fmtClock(secEnd);
+  } else {
+    $("#clockLC").textContent = "—";
+    $("#clockEnd").textContent = "—";
+  }
+}
+
+// --- Playback ---
+function startTick(){
+  stopTick();
+  const interval = 1000 / Math.max(1e-6, fps * getPlaybackRate());
+  tick = setInterval(()=>{
+    if (frames <= 0) return;
+    cur = (cur+1) % frames;
+    $("#slider").value = cur;
+    $("#finfo").textContent = `${cur}/${frames-1}`;
+    drawFrame(cur);
+    updateClocks();
+  }, interval);
+}
+function stopTick(){ if (tick){ clearInterval(tick); tick=null; } }
+
+function play(){ if (playing || frames<=0) return; playing=true; startTick(); }
+function pause(){ playing=false; stopTick(); }
 
 $("#play").onclick = play;
 $("#pause").onclick = pause;
-$("#slider").oninput = (e)=>{ cur = Number(e.target.value); $("#finfo").textContent = `${cur}/${frames-1}`; drawFrame(cur); };
-$("#jump").onclick = ()=>{ if (lastCrossFrame!=null){ cur = lastCrossFrame; $("#slider").value = cur; drawFrame(cur); } };
+$("#slider").oninput = (e)=>{
+  cur = Number(e.target.value);
+  $("#finfo").textContent = `${cur}/${frames-1}`;
+  drawFrame(cur);
+  updateClocks();
+};
+$("#jump").onclick = ()=>{
+  if (lastCrossFrame!=null){
+    cur = Math.min(lastCrossFrame, frames-1);
+    $("#slider").value = cur;
+    drawFrame(cur);
+    updateClocks();
+  }
+};
+
+// Alignment controls (inputs are ALWAYS enabled now)
+$("#alignSec").addEventListener("input", (e)=>{
+  const v = Number(e.target.value);
+  alignSec = (isFinite(v) && v > 0) ? v : null;
+  updateEffFpsDisplay();
+  updateClocks();
+  if (playing) startTick();
+});
+$("#align60").addEventListener("click", ()=>{
+  alignSec = 60;
+  $("#alignSec").value = String(alignSec);
+  updateEffFpsDisplay();
+  updateClocks();
+  if (playing) startTick();
+});
+$("#alignReset").addEventListener("click", ()=>{
+  alignSec = null;
+  $("#alignSec").value = "";
+  updateEffFpsDisplay();
+  updateClocks();
+  if (playing) startTick();
+});
 
 $("#file").addEventListener("change", (e)=>{
   const f = e.target.files[0];
-  if (f) loadJSON(f).then(()=>drawFrame(0));
+  if (f) loadJSON(f).then(()=>{
+    drawFrame(0);
+    updateEffFpsDisplay();
+    updateClocks();
+  });
 });
 
 (async function init(){
-  if (bakeUrl){ await loadJSON(bakeUrl); drawFrame(0); }
+  if (bakeUrl){
+    await loadJSON(bakeUrl);
+    drawFrame(0);
+    updateEffFpsDisplay();
+    updateClocks();
+  }
 })();
 </script>
 </body>

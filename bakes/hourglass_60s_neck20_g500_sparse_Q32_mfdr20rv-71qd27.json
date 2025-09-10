@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "duration": 60,
+    "fps": 60,
+    "grains": 500,
+    "full": 1,
+    "neck": 20,
+    "H": 500,
+    "bulb": 220,
+    "r": 4,
+    "k": 0.1,
+    "tiltDeg": 0,
+    "slat": 0,
+    "c1": 0.8,
+    "c2": 0,
+    "Q": 32,
+    "mode": "sparse"
+  },
+  "frames": 3600,
+  "fps": 60,
+  "lastCrossFrame": 3600,
+  "sbin": "bakes/hourglass_60s_neck20_g500_sparse_Q32_mfdr20rv-71qd27.sbin"
+}
