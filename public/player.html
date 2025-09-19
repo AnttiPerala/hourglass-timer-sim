@@ -13,7 +13,6 @@
     header .sub { color:var(--sub); font-size:12px; }
     main { padding:10px 12px; display:grid; grid-template-columns: 1fr; gap:10px; }
     #wrap { display:flex; justify-content:center; }
-    /* Canvas scales to layout; internal resolution adjusts via ResizeObserver */
     canvas { background:#06080b; border:1px solid #1d2330; border-radius:10px; width: min(1200px, 96vw); height: calc(min(1200px,96vw)*1.2); max-height: 88vh; }
     .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .chip { background:#121a25; border:1px solid #223042; padding:4px 8px; border-radius:8px; font-size:12px; }
@@ -56,7 +55,7 @@
 
     <div class="row">
       <span>Zoom:</span>
-      <input id="zoom" type="range" min="50" max="200" step="5" value="100" title="Zoom the view (50–200%)">
+      <input id="zoom" type="range" min="10" max="200" step="5" value="100" title="Zoom the view (10–200%)">
       <span id="zoomLbl" class="chip">100%</span>
       <span style="width:12px"></span>
       <span>Pan&nbsp;Y:</span>
@@ -86,15 +85,14 @@
 
   let meta = null, frames = 0, grains = 0, baseFPS = 60, lastCrossFrame = null, Q = 32;
   let mode = "sparse"; // or dense
-  let reader = null;   // {getFrame(i)->positions, seek(i)->void}
+  let reader = null;
   let alive = [];
-  let anim = null, cur = 0, effectiveFPS = 60, lastTick = 0;
+  let anim = null, cur = 0, effectiveFPS = 60, lastTick = 0, frameAcc = 0;
 
-  const SENT = 65535; // death sentinel from baker
-  let viewZoom = 1.0; // 1.0 = fit scale, multiplied by this factor
-  let panYFrac = 0.0; // fraction of H ( -1..+1 ), positive pans down
+  const SENT = 65535; // death sentinel
+  let viewZoom = 1.0; // 1.0 = fit scale; multiplied by slider factor
+  let panYFrac = 0.0; // fraction of H (-1..+1), positive pans down
 
-  // util
   const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
   function fitScale() {
     const W = (meta.bulb*2 + 80), H2 = (meta.H*2 + 80);
@@ -105,12 +103,10 @@
   const worldToScreen = (x,y) => {
     const s = fitScale() * viewZoom;
     const cx = cv.width/2, cy = cv.height/2;
-    // pan in world units (px): fraction of H
     const py = (panYFrac * meta.H);
     return [cx + x * s, cy + (y + py) * s, s];
   };
 
-  /* -------------------- loader -------------------- */
   async function loadJSON(url) {
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch JSON: ' + res.status);
@@ -168,7 +164,6 @@
   }
   function fail(msg){ warn.textContent = msg; }
 
-  /* -------------------- dense reader -------------------- */
   async function loadDense(url) {
     try {
       const buf = await (await fetch(url)).arrayBuffer();
@@ -180,14 +175,12 @@
           for (let g=0; g<grains; g++, off+=2) arr[g] = [u16[off], u16[off+1]];
           return arr;
         },
-        seek(i){ /* nothing */ }
+        seek(i){ /* noop */ }
       };
-      cur = 0;
-      drawFrame(cur);
+      cur = 0; drawFrame(cur);
     } catch (e) { fail('dense load error: ' + e.message); }
   }
 
-  /* -------------------- sparse reader -------------------- */
   async function loadSparse(url) {
     try {
       const buf = await (await fetch(url)).arrayBuffer();
@@ -255,12 +248,10 @@
         getFrame(i){ return this.seek(i); }
       };
 
-      cur = 0;
-      drawFrame(cur);
+      cur = 0; drawFrame(cur);
     } catch (e) { fail('sparse load error: ' + e.message); }
   }
 
-  /* -------------------- drawing -------------------- */
   function xHalf(y) {
     const H = meta.H, neck = meta.neck, bulb = meta.bulb, c1 = Number(meta.c1||0), c2 = Number(meta.c2||0);
     const ay = Math.abs(y);
@@ -316,25 +307,26 @@
     updateClocks(i);
   }
 
-  /* -------------------- playback & UI -------------------- */
+  // --- playback with frame accumulator (works for any effectiveFPS) ---
   function tick(ts) {
     if (!reader) return;
     if (!lastTick) lastTick = ts;
-    const dt = (ts - lastTick) / 1000;
-    const step = effectiveFPS * dt;
-    if (step > 0) {
-      let next = Math.floor(cur + step);
-      if (next > cur) {
-        next = Math.min(next, frames-1);
-        cur = next;
-        drawFrame(cur);
-        if (cur >= frames-1) stop();
-      }
-    }
+    let dt = (ts - lastTick) / 1000;
     lastTick = ts;
+    // clamp very long tabs to avoid big jumps
+    if (dt > 0.25) dt = 0.25;
+
+    frameAcc += effectiveFPS * dt;
+    if (frameAcc >= 1) {
+      const advance = Math.floor(frameAcc);
+      frameAcc -= advance;
+      const next = Math.min(cur + advance, frames - 1);
+      if (next !== cur) { cur = next; drawFrame(cur); }
+      if (cur >= frames - 1) { stop(); return; }
+    }
     anim = requestAnimationFrame(tick);
   }
-  function play() { stop(); lastTick = 0; anim = requestAnimationFrame(tick); }
+  function play() { stop(); lastTick = 0; frameAcc = 0; anim = requestAnimationFrame(tick); }
   function stop() { if (anim) cancelAnimationFrame(anim); anim = null; }
   playBtn.onclick = () => play();
   pauseBtn.onclick = () => stop();
@@ -349,16 +341,21 @@
     computeEffectiveFPS();
   });
   resetAlignBtn.onclick = () => { alignSec = null; alignSecInp.value = ""; computeEffectiveFPS(); };
+
   function computeEffectiveFPS() {
     if (alignSec!=null && lastCrossFrame!=null && lastCrossFrame>0) {
-      effectiveFPS = baseFPS * (lastCrossFrame/ baseFPS) / alignSec;
-      alignInfo.textContent = `Playback rate scales so lastCross lands at ~${alignSec.toFixed(2)} s (eff FPS: ${effectiveFPS.toFixed(2)}).`;
+      const lastCrossSec = lastCrossFrame / baseFPS;
+      const factor = lastCrossSec / alignSec;            // < 1 speeds down, > 1 speeds up
+      effectiveFPS = baseFPS * factor;
+      if (!Number.isFinite(effectiveFPS) || effectiveFPS <= 0) effectiveFPS = baseFPS;
+      alignInfo.textContent = `Playback scales so lastCross ≈ ${alignSec.toFixed(2)} s (eff FPS: ${effectiveFPS.toFixed(2)}).`;
     } else {
       effectiveFPS = baseFPS;
       alignInfo.textContent = '';
     }
     fpsEl.textContent = effectiveFPS.toFixed(2);
   }
+
   function updateClocks(i) {
     if (lastCrossFrame!=null) {
       const secsLeft = Math.max(0, (lastCrossFrame - i) / effectiveFPS);
@@ -377,14 +374,14 @@
     zoomLbl.textContent = `${z}%`;
     drawFrame(cur||0);
   }
-  function applyPanYUI() {
-    const p = Number(panYCtl.value) || 0; // -100..+100 (% of H)
+  function applyPanUI() {
+    const p = Number(panYCtl.value) || 0;
     panYFrac = p / 100;
     panYLbl.textContent = `${p}%`;
     drawFrame(cur||0);
   }
   zoomCtl.addEventListener('input', applyZoomUI);
-  panYCtl.addEventListener('input', applyPanYUI);
+  panYCtl.addEventListener('input', applyPanUI);
 
   // resize canvas to devicePixelRatio
   function resizeCanvas() {
@@ -399,7 +396,7 @@
 
   // init labels once
   applyZoomUI();
-  applyPanYUI();
+  applyPanUI();
   </script>
 </body>
 </html>
