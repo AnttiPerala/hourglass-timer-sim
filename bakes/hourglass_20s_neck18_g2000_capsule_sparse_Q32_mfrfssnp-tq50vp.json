@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "duration": 20,
+    "fps": 120,
+    "grains": 2000,
+    "full": 1,
+    "neck": 18,
+    "H": 500,
+    "bulb": 220,
+    "r": 6,
+    "bounce": 0.8,
+    "friction": 0.02,
+    "tiltDeg": 0,
+    "slat": 0,
+    "c1": 0.8,
+    "c2": 0.4,
+    "Q": 32,
+    "mode": "sparse",
+    "wallMode": "capsule",
+    "wallThickness": 24,
+    "sleepOnlyBelowFrac": 0.58,
+    "neckNoSleepBandPx": 80,
+    "bottomSleepBandPx": 175,
+    "outsideKillPad": 0.5,
+    "outsideCullFrames": 2,
+    "hardKillPad": 0.2,
+    "strictKillPad": 0.15
+  },
+  "frames": 2400,
+  "fps": 120,
+  "lastCrossFrame": null,
+  "sbin": "/bakes/hourglass_20s_neck18_g2000_capsule_sparse_Q32_mfrfssnp-tq50vp.sbin"
+}

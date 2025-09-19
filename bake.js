@@ -117,50 +117,115 @@ function xHalf(y) {
 /* walls (outward thickness) */
 const wallThickness = wallThicknessArg > 0 ? wallThicknessArg : Math.max(12, Math.ceil(r * 4));
 
+/* --------------- FIXED: outward-only rectangular strips with bevel + no self-collide --------------- */
 function buildWallsRect() {
   const segs = 240;
-  const t = wallThickness, halfT = t / 2, overlap = t * 3.0;
+  const t = wallThickness, halfT = t / 2, overlap = Math.max(1.5, t * 0.75);
   const yMin = -H, yMax = H, dy = (yMax - yMin) / segs;
-  const w = (ang) => ({ isStatic: true, angle: ang, friction: 0, frictionStatic: 0, restitution: 0 });
+
+  const wallOpts = (ang) => ({
+    isStatic: true,
+    angle: ang,
+    friction: 0,
+    frictionStatic: 0,
+    restitution: 0,
+    collisionFilter: { group: -1 },      // walls don't collide with each other
+    chamfer: { radius: Math.min(t * 0.45, 4) },
+    render: { visible: false }
+  });
 
   const add = (p0, p1, flip) => {
     const dx = p1.x - p0.x, dyS = p1.y - p0.y;
-    const len = Math.hypot(dx, dyS) + overlap, ang = Math.atan2(dyS, dx);
-    let nx = -dyS, ny = dx; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
-    if ((flip ? nx < 0 : nx > 0)) { nx = -nx; ny = -ny; } // push outward
-    const cx = (p0.x + p1.x) / 2 + nx * halfT, cy = (p0.y + p1.y) / 2 + ny * halfT;
-    World.add(engine.world, Bodies.rectangle(cx, cy, len, t, w(ang)));
+    const len = Math.hypot(dx, dyS) + overlap;
+    const ang = Math.atan2(dyS, dx);
+
+    // unit normal of the centerline segment
+    let nx = -dyS, ny = dx;
+    const nlen = Math.hypot(nx, ny) || 1;
+    nx /= nlen; ny /= nlen;
+
+    // push OUTWARD: for right wall (flip=true) outward is +X; for left wall (flip=false) outward is -X
+    const outward = (flip ? (nx > 0) : (nx < 0)) ? 1 : -1;
+    const cx = (p0.x + p1.x) * 0.5 + nx * halfT * outward;
+    const cy = (p0.y + p1.y) * 0.5 + ny * halfT * outward;
+
+    World.add(engine.world, Bodies.rectangle(cx, cy, len, t, wallOpts(ang)));
   };
 
   for (let i = 0; i < segs; i++) {
     const y0 = yMin + i * dy, y1 = yMin + (i + 1) * dy;
     const xm0 = xHalf(y0), xm1 = xHalf(y1);
-    add({ x: -xm0, y: y0 }, { x: -xm1, y: y1 }, false);
-    add({ x: +xm0, y: y0 }, { x: +xm1, y: y1 }, true);
+    add({ x: -xm0, y: y0 }, { x: -xm1, y: y1 }, false); // left
+    add({ x: +xm0, y: y0 }, { x: +xm1, y: y1 }, true);  // right
   }
 
-  if (slat > 0) World.add(engine.world, Bodies.rectangle(0, 0, slat, t, { isStatic: true }));
-  // bottom only
-  World.add(engine.world, Bodies.rectangle(0, H + halfT, bulb * 2 + 80, t, { isStatic: true }));
+  if (slat > 0) {
+    World.add(engine.world, Bodies.rectangle(0, 0, slat, t, {
+      isStatic: true,
+      collisionFilter: { group: -1 },
+      render: { visible: false }
+    }));
+  }
+
+  // Bottom slab: inner edge on curve bottom, also non-colliding with wall strips
+  World.add(engine.world, Bodies.rectangle(0, H + halfT, bulb * 2 + 80, t, {
+    isStatic: true,
+    friction: 0,
+    restitution: 0,
+    collisionFilter: { group: -1 },
+    render: { visible: false }
+  }));
 }
 
+/* --------------- FIXED: outward-only capsule chain (discrete circles) + no self-collide --------------- */
 function buildWallsCapsule() {
   const rad = wallThickness / 2, segs = 420, dy = (2 * H) / segs, eps = 1e-3;
-  const circleOpts = { isStatic: true, friction: 0, frictionStatic: 0, restitution: 0, label: "wall" };
+  const circleOpts = {
+    isStatic: true,
+    friction: 0,
+    frictionStatic: 0,
+    restitution: 0,
+    collisionFilter: { group: -1 },
+    label: "wall",
+    render: { visible: false }
+  };
+
   const normalAt = (y) => {
     const dxdy = (xHalf(Math.min(H, y + eps)) - xHalf(Math.max(-H, y - eps))) / (2 * eps);
     const nx = 1, ny = -dxdy, inv = 1 / Math.hypot(nx, ny);
-    return { nx: nx * inv, ny: ny * inv };
+    return { nx: nx * inv, ny: ny * inv }; // unit normal pointing outward (+X when slope is 0)
   };
+
   for (let i = 0; i <= segs; i++) {
     const y = -H + i * dy;
-    { const x = xHalf(y); const { nx, ny } = normalAt(y); const cx = x + nx * rad, cy = y + ny * rad; World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts)); }
-    { const x = xHalf(y); const { nx, ny } = normalAt(y); const cx = -(x + nx * rad), cy = y + ny * rad; World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts)); }
+
+    // right wall (positive x), outward offset +nx*rad, +ny*rad
+    { const x = xHalf(y); const { nx, ny } = normalAt(y);
+      const cx = x + nx * rad, cy = y + ny * rad;
+      World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts)); }
+
+    // left wall (negative x) — mirror and keep the same outward offset
+    { const x = xHalf(y); const { nx, ny } = normalAt(y);
+      const cx = -(x + nx * rad), cy = y + ny * rad;
+      World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts)); }
   }
-  if (slat > 0) World.add(engine.world, Bodies.rectangle(0, 0, slat, wallThickness, { isStatic: true }));
-  World.add(engine.world, Bodies.rectangle(0, H + rad, bulb * 2 + 80, wallThickness, { isStatic: true }));
+
+  if (slat > 0) {
+    World.add(engine.world, Bodies.rectangle(0, 0, slat, wallThickness, {
+      isStatic: true,
+      collisionFilter: { group: -1 },
+      render: { visible: false }
+    }));
+  }
+
+  World.add(engine.world, Bodies.rectangle(0, H + rad, bulb * 2 + 80, wallThickness, {
+    isStatic: true,
+    collisionFilter: { group: -1 },
+    render: { visible: false }
+  }));
 }
 
+// Choose wall mode
 if (wallMode === "capsule") buildWallsCapsule(); else buildWallsRect();
 
 /* inside test (center vs inner curve) */

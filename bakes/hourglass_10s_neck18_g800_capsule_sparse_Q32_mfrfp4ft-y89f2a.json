@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "duration": 10,
+    "fps": 60,
+    "grains": 800,
+    "full": 1,
+    "neck": 18,
+    "H": 500,
+    "bulb": 220,
+    "r": 2,
+    "bounce": 0.12,
+    "friction": 0.02,
+    "tiltDeg": 0,
+    "slat": 0,
+    "c1": 0.8,
+    "c2": 0,
+    "Q": 32,
+    "mode": "sparse",
+    "wallMode": "capsule",
+    "wallThickness": 12,
+    "sleepOnlyBelowFrac": 0.58,
+    "neckNoSleepBandPx": 80,
+    "bottomSleepBandPx": 175,
+    "outsideKillPad": 0.5,
+    "outsideCullFrames": 2,
+    "hardKillPad": 0.2,
+    "strictKillPad": 0.15
+  },
+  "frames": 600,
+  "fps": 60,
+  "lastCrossFrame": 90,
+  "sbin": "/bakes/hourglass_10s_neck18_g800_capsule_sparse_Q32_mfrfp4ft-y89f2a.sbin"
+}
