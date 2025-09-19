@@ -1,8 +1,8 @@
-// bake.js
+// bake.js — hourglass bake with capsule walls (no seam catches), strict culling, wall-slip, static-sleep
 import fs from "fs";
 import path from "path";
 import Matter from "matter-js";
-const { Engine, World, Bodies, Body, Composite, Runner } = Matter;
+const { Engine, World, Bodies, Body, Composite, Runner, Sleeping } = Matter;
 
 /* -------------------- tiny args parser -------------------- */
 const argv = process.argv.slice(2);
@@ -46,12 +46,25 @@ const outputMode   = str("outputMode", "dense"); // dense|sparse
 const Q            = num("Q", 32);
 const progress     = bool("progress");
 const sparseThresholdPx = num("sparseThresholdPx", 1 / Q);
+/* sleep behaviour: "static" (default) | "sleep" | "remove" */
+const sleepMode    = str("sleepMode", "static");
+
+/* ----- stability helpers ----- */
+const SUBSTEPS     = Math.max(1, Math.round(60 / Math.max(1, fps))); // ~2 at 30fps
+const MAX_SPEED    = num("maxSpeed", 24);
+
+/* ----- outside culling controls ----- */
+const outsideKillPad      = num("outsideKillPad", 0.5);
+const outsideCullFrames   = Math.max(1, num("outsideCullFrames", 2));
+const hardKillPad         = num("hardKillPad", 0.2);
+const strictKillPad       = num("strictKillPad", 0.15);
 
 /* -------------------- sleep only deep in bottom bulb -------------------- */
-const sleepOnlyBelowFrac = num("sleepOnlyBelowFrac", 0.58); // allow sleep below 58% of height
+const sleepOnlyBelowFrac = num("sleepOnlyBelowFrac", 0.58);
 const sleepOnlyBelowY = H * sleepOnlyBelowFrac;
 
-/* -------------------- anti-clog wobble/pulse -------------------- */
+/* -------------------- unclog helpers -------------------- */
+const unclogAssist = args.unclogAssist ? true : false;
 const vibeAmpBaseDeg   = num("vibeAmpDeg", 0.25);
 const vibeHz           = num("vibeHz", 2.0);
 const unclogDelaySec   = num("antiClogPeriod", 0.30);
@@ -61,37 +74,19 @@ const pulseEverySec    = num("antiClogPulseEvery", 0.12);
 const pulseZoneY       = num("antiClogZoneY", 30);
 const pulseTopOnly     = !bool("pulseBottomToo");
 const pulseForce       = num("antiClogPulseForce", 1.0e-5);
-const rescueDownBias   = num("antiClogDownBias", 4.0e-6); // +Y is downward
+const rescueDownBias   = num("antiClogDownBias", 4.0e-6);
 
-/* -------------------- flushers: now ONLY below the neck -------------------- */
-const useFlushers      = !bool("noFlushers");
-const flusherCount     = num("flusherCount", 2);
-const flusherR         = num("flusherR", Math.max(1, r * 1.5));
-const flusherAmp       = num("flusherAmp", Math.max(4, neck * 0.35));
-// IMPORTANT: start just *below* the neck (positive y). Never collide above y<0.
-const flusherYTop      = num("flusherY", Math.max(6, r * 3)); // +y (below neck)
-const flusherHz        = num("flusherHz", 1.7);
-const flusherTopCount  = num("flusherTopCount", 40);
-// Downward pass parameters
-const sweepDepthY      = num("flusherDepthY", Math.max(14, r * 6)); // travel depth into bottom bulb (+y)
-const sweepDownSec     = num("flusherSweepDownSec", 0.35);
-const sweepHoldSec     = num("flusherSweepHoldSec", 0.10);
-const sweepCooldownSec = num("flusherCooldownSec", 0.40);
-// How close to the inner wall (px)
-const flusherEdgeGap   = num("flusherEdgeGap", Math.max(0.5, r * 0.4));
-// Safety: never collide above the neck
-const flusherNeverAboveNeck = true;
+/* --- wall-slip detacher --- */
+const wallSlipPx         = num("wallSlipPx", Math.max(0.4, r*0.6));
+const wallSlipVel        = num("wallSlipVel", 0.25);
+const wallSlipKickF      = num("wallSlipKickF", 1.2e-4);
+const wallSlipKickDownF  = num("wallSlipKickDownF", 4.0e-5);
+const wallSlipCooldownMs = num("wallSlipCooldownMs", 250);
 
-/* -------------------- per-grain anti-stick (above neck) -------------------- */
-const stuckKickAfterMs     = num("stuckKickAfterMs", 1000);
-const stuckVelPx           = num("stuckVelPx", 0.18);
-const stuckDistPx          = num("stuckDistPx", 0.25);
-const stuckKickF           = num("stuckKickF", 1.8e-4);
-const stuckKickInwardF     = num("stuckKickInwardF", 1.2e-4);
-const stuckKickCooldownMs  = num("stuckKickCooldownMs", 300);
-const stuckInjectAfterMs   = num("stuckInjectAfterMs", 1800);
-const stuckInjectVy        = num("stuckInjectVy", 0.8);
-const stuckInjectVx        = num("stuckInjectVx", 0.4);
+/* --- gentle inward/down bias near upper walls --- */
+const wallBiasBandPx   = num("wallBiasBandPx", Math.max(14, r*6));
+const wallBiasInF      = num("wallBiasInF", 1.6e-4);
+const wallBiasDownF    = num("wallBiasDownF", 6.0e-5);
 
 /* -------------------- world/engine -------------------- */
 const DT = 1 / fps;
@@ -99,16 +94,15 @@ const WORLD_W = bulb * 2 + 80;
 const WORLD_H = H * 2 + 80;
 
 const engine = Engine.create();
-engine.positionIterations = 12;
-engine.velocityIterations = 8;
+engine.enableSleeping = true;
+engine.positionIterations = 14;
+engine.velocityIterations = 10;
 engine.constraintIterations = 4;
 
 const baseTiltRad = tiltDeg * Math.PI / 180;
-// Tilt gravity only (container stays unrotated)
 engine.gravity.x = Math.sin(baseTiltRad);
 engine.gravity.y = Math.cos(baseTiltRad);
 
-// Local coordinates (unrotated frame)
 const sinT = Math.sin(baseTiltRad);
 const cosT = Math.cos(baseTiltRad);
 const localY = (p) => (-p.x * sinT) + (p.y * cosT);
@@ -123,51 +117,53 @@ function xHalf(y) {
   return (neck / 2) + (bulb - neck / 2) * s;
 }
 
-/* -------------------- walls: outward thickness only -------------------- */
+/* -------------------- walls: capsule chain (no seam catches) -------------------- */
 const wallThickness = wallThicknessArg > 0 ? wallThicknessArg : Math.max(12, Math.ceil(r * 4));
 function buildWalls() {
-  const segs = 200;
-  const thickness = wallThickness;
-  const halfT = thickness / 2;
-  const overlap = thickness * 1.6;
-  const yMin = -H, yMax = H;
-  const dy = (yMax - yMin) / segs;
-  const wallOpts = (angle) => ({ isStatic: true, angle, friction: 0, frictionStatic: 0, restitution: 0 });
+  const rad = wallThickness / 2;
+  const segs = 420; // more points -> smoother
+  const dy = (2*H) / segs;
+  const eps = 1e-3;
 
-  const bodies = [];
-  for (let i = 0; i < segs; i++) {
-    const y0 = yMin + i * dy;
-    const y1 = yMin + (i + 1) * dy;
-    const xm0 = xHalf(y0), xm1 = xHalf(y1);
+  const circleOpts = { isStatic:true, friction:0, frictionStatic:0, restitution:0, label:"wall" };
 
-    // left
-    { const p0 = { x: -xm0, y: y0 }, p1 = { x: -xm1, y: y1 };
-      const dx=p1.x-p0.x, dyS=p1.y-p0.y, segLen=Math.hypot(dx,dyS), len=segLen+overlap, ang=Math.atan2(dyS,dx);
-      let nx=-dyS, ny=dx; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; if (nx>0){nx=-nx;ny=-ny;}
-      const cx=(p0.x+p1.x)/2+nx*halfT, cy=(p0.y+p1.y)/2+ny*halfT;
-      bodies.push(Bodies.rectangle(cx, cy, len, thickness, wallOpts(ang)));
+  // helper: outward normal at (y)
+  const normalAt = (y) => {
+    const dxdy = (xHalf(Math.min(H, y+eps)) - xHalf(Math.max(-H, y-eps))) / (2*eps);
+    const nx = 1, ny = -dxdy; // right-wall outward for tangent (dxdy,1)
+    const inv = 1/Math.hypot(nx,ny);
+    return { nx:nx*inv, ny:ny*inv };
+  };
+
+  for (let i=0;i<=segs;i++){
+    const y = -H + i*dy;
+    // right side
+    {
+      const x = xHalf(y);
+      const {nx,ny} = normalAt(y); // outward on right
+      const cx = x + nx*rad, cy = y + ny*rad;
+      World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts));
     }
-    // right
-    { const p0 = { x: +xm0, y: y0 }, p1 = { x: +xm1, y: y1 };
-      const dx=p1.x-p0.x, dyS=p1.y-p0.y, segLen=Math.hypot(dx,dyS), len=segLen+overlap, ang=Math.atan2(dyS,dx);
-      let nx=-dyS, ny=dx; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; if (nx<0){nx=-nx;ny=-ny;}
-      const cx=(p0.x+p1.x)/2+nx*halfT, cy=(p0.y+p1.y)/2+ny*halfT;
-      bodies.push(Bodies.rectangle(cx, cy, len, thickness, wallOpts(ang)));
+    // left side
+    {
+      const x = xHalf(y);
+      const {nx,ny} = normalAt(y);
+      const cx = -(x + nx*rad), cy = y + ny*rad; // mirror
+      World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts));
     }
   }
-  if (slat > 0) bodies.push(Bodies.rectangle(0, 0, slat, thickness, { isStatic:true, friction:0, frictionStatic:0, restitution:0 }));
-  bodies.push(Bodies.rectangle(0, -H - halfT, WORLD_W, thickness, { isStatic:true }));
-  bodies.push(Bodies.rectangle(0,  H + halfT, WORLD_W, thickness, { isStatic:true }));
-  bodies.forEach(b => World.add(engine.world, b));
+
+  if (slat > 0) World.add(engine.world, Bodies.rectangle(0, 0, slat, wallThickness, { isStatic:true, friction:0, frictionStatic:0, restitution:0 }));
+  // bottom floor
+  World.add(engine.world, Bodies.rectangle(0,  H + rad, WORLD_W, wallThickness, { isStatic:true }));
 }
 buildWalls();
 
 /* -------------------- helper: inside test -------------------- */
-const insideMargin = Math.max(1, Math.ceil(r * 0.75));
-function isInside(p) {
+function fullyInsideCircle(p) {
   const y = p.y;
   if (y < -H - 2 || y > H + 2) return false;
-  const limit = xHalf(y) - insideMargin;
+  const limit = xHalf(y) - (r + outsideKillPad);
   return Math.abs(p.x) <= limit;
 }
 
@@ -184,7 +180,7 @@ function tryPlace(y) {
     restitution: Math.max(0, Math.min(1, bounce)),
     friction: Math.max(0, Math.min(1, friction)),
     frictionStatic: 0,
-    frictionAir: 0.002,
+    frictionAir: 0.003,
     density: 0.001
   });
   for (const g of grains) {
@@ -196,29 +192,12 @@ function tryPlace(y) {
   circle._stuckAccum = 0;
   circle._lastKickAt = -1e9;
   circle._lastPos = { x: circle.position.x, y: circle.position.y };
+  circle._outsideCount = 0;
   grains.push(circle); World.add(engine.world, circle);
   return true;
 }
 while (placed < grainsN && tries < maxTries) { tries++; const y = topYmin + Math.random() * (topYmax - topYmin); if (tryPlace(y)) placed++; }
 while (placed < grainsN) { const y = -H + 30 - placed * (2*r + 0.2); if (tryPlace(y)) placed++; }
-
-/* -------------------- build flushers (parked offscreen) -------------------- */
-const flushers = [];
-function buildFlushers() {
-  if (!useFlushers || flusherCount <= 0) return;
-  for (let i=0;i<flusherCount;i++){
-    const b = Bodies.circle(0, -H - 1000, flusherR, {
-      isStatic: true,
-      isSensor: true, // parked as sensors
-      friction: 0, frictionStatic: 0, restitution: 0,
-      collisionFilter: { group: 0, category: 0x0002, mask: 0xFFFF },
-      label: "flusher"
-    });
-    flushers.push(b);
-    World.add(engine.world, b);
-  }
-}
-buildFlushers();
 
 /* -------------------- output -------------------- */
 const nameBase = `hourglass_${duration}s_neck${neck}_g${grainsN}_${outputMode}_Q${Q}_${id}`;
@@ -235,10 +214,15 @@ function writeU16(s,v){ const b=Buffer.allocUnsafe(2); b.writeUInt16LE(v,0); s.w
 function writeU32(s,v){ const b=Buffer.allocUnsafe(4); b.writeUInt32LE(v,0); s.write(b); }
 function writeVarint(s,v){ let n=v>>>0; while(n>=0x80){ s.write(Buffer.from([(n&0x7f)|0x80])); n>>>=7; } s.write(Buffer.from([n])); }
 
+const binFsPath  = path.join(outDir, `${nameBase}.bin`);
+const sbinFsPath = path.join(outDir, `${nameBase}.sbin`);
+const binUrlPath  = "/" + path.posix.join("bakes", `${nameBase}.bin`);
+const sbinUrlPath = "/" + path.posix.join("bakes", `${nameBase}.sbin`);
+
 if (outputMode === "dense") {
-  binStream = fs.createWriteStream(path.join(outDir, `${nameBase}.bin`));
+  binStream = fs.createWriteStream(binFsPath);
 } else {
-  sbinStream = fs.createWriteStream(path.join(outDir, `${nameBase}.sbin`));
+  sbinStream = fs.createWriteStream(sbinFsPath);
   sbinStream.write(Buffer.from("HGSB")); writeU16(sbinStream, Q); writeU32(sbinStream, grainsN); writeU32(sbinStream, 0);
 }
 
@@ -250,15 +234,11 @@ let lastFlowFrame = 0;
 let stallFrames = 0;
 let pulseAccum = 0;
 
-// flusher FSM: "idle" | "down" | "hold" | "cooldown"
-let flState = "idle";
-let flStateT = 0;
-
 /* -------------------- helpers -------------------- */
 function topBulbEmptyNow() {
   for (const g of grains) {
     if (g._removed) continue;
-    if (!isInside(g.position)) continue;
+    if (!fullyInsideCircle(g.position)) continue;
     if (localY(g.position) < -r * 0.5) return false;
   }
   return true;
@@ -267,7 +247,7 @@ function countTopInside() {
   let n = 0;
   for (const g of grains) {
     if (g._removed) continue;
-    if (!isInside(g.position)) continue;
+    if (!fullyInsideCircle(g.position)) continue;
     if (localY(g.position) < 0) n++;
   }
   return n;
@@ -290,11 +270,10 @@ function emitProgress(){ if (progress) console.log("BAKE " + JSON.stringify({eve
 function emitMeta(){
   console.log("BAKE " + JSON.stringify({
     event:"meta", grains:grainsN, fps, duration, neck, bulb, H, r, bounce, friction, Q, mode:outputMode,
-    wallThickness, sleepOnlyBelowFrac,
-    antiClog:{ vibeAmpBaseDeg, vibeAmpMaxDeg, vibeHz, unclogDelaySec, rescueTopCount, pulseEverySec, pulseZoneY, pulseTopOnly, pulseForce, rescueDownBias },
-    flushers: { useFlushers, flusherCount, flusherR, flusherAmp, flusherYTop, flusherHz, flusherTopCount,
-                sweepDepthY, sweepDownSec, sweepHoldSec, sweepCooldownSec, flusherEdgeGap, flusherNeverAboveNeck },
-    antiStick:{ stuckKickAfterMs, stuckVelPx, stuckDistPx, stuckKickF, stuckKickInwardF, stuckKickCooldownMs, stuckInjectAfterMs, stuckInjectVy, stuckInjectVx }
+    wallThickness, sleepOnlyBelowFrac, sleepMode,
+    outsideKillPad, outsideCullFrames, hardKillPad, strictKillPad, unclogAssist,
+    wallSlipPx, wallSlipVel, wallSlipKickF, wallSlipKickDownF, wallSlipCooldownMs,
+    wallBiasBandPx, wallBiasInF, wallBiasDownF
   }));
 }
 emitMeta();
@@ -311,7 +290,6 @@ function currentVibeAmpDeg(topCount) {
   return amp;
 }
 function pulseNeck(topCount) {
-  // widen band when few grains remain
   const baseBand = pulseZoneY;
   const wideBand = Math.min(H, Math.max(80, 0.18 * H));
   const yBand = (topCount <= rescueTopCount) ? Math.max(baseBand, wideBand) : baseBand;
@@ -327,8 +305,7 @@ function pulseNeck(topCount) {
     if (Math.abs(yLoc) > yBand) continue;
     if (pulseTopOnly && yLoc >= 0) continue;
 
-    // use local width so pulses can hit wall-huggers
-    const xLimit = xHalf(yLoc) - insideMargin;
+    const xLimit = xHalf(yLoc) - (r + outsideKillPad);
     if (Math.abs(p.x) > xLimit + r*0.5) continue;
 
     const fx = (Math.random() - 0.5) * pulseForce * 2;
@@ -337,32 +314,35 @@ function pulseNeck(topCount) {
   }
 }
 
-/* -------------------- flusher helpers (dynamic X by Y) -------------------- */
-function setFlusherXForBody(f, tSec, speedMul = 1) {
-  const y = f.position.y;
-  const limit = Math.max(0, xHalf(y) - (flusherR + flusherEdgeGap));
-  const A = Math.min(limit, flusherAmp);
-  const phase = (flushers.indexOf(f) / Math.max(1, flushers.length)) * Math.PI * 2;
-  const x = A * Math.sin(2 * Math.PI * flusherHz * speedMul * tSec + phase);
-  Body.setPosition(f, { x, y });
-}
-function setFlushersY(y){ for (const f of flushers) Body.setPosition(f, { x: f.position.x, y }); }
-function setFlushersX(tSec, speedMul = 1){ for (const f of flushers) setFlusherXForBody(f, tSec, speedMul); }
-function parkFlushersOffscreen() {
-  for (const f of flushers) { f.isSensor = true; Body.setPosition(f, { x: 0, y: -H - 1000 }); }
-  flState = "idle"; flStateT = 0;
+/* -------------------- outside culling -------------------- */
+function shouldCullOutside(g) {
+  const p = g.position;
+  // far out of bounds: immediate
+  if (Math.abs(p.x) > bulb + 48 || p.y < -H - 48 || p.y > H + 48) return true;
+
+  const limit = xHalf(p.y);
+  const dx = Math.abs(p.x) - limit;
+
+  if (dx > strictKillPad) return true;
+  if (dx > (r + hardKillPad)) return true;
+
+  if (dx > (r + outsideKillPad)) {
+    g._outsideCount = (g._outsideCount || 0) + 1;
+    if (g._outsideCount >= outsideCullFrames) return true;
+  } else {
+    g._outsideCount = 0;
+  }
+  return false;
 }
 
 /* -------------------- loop -------------------- */
 const runner = Runner.create({ isFixed:true, delta:DT });
 
 function stepOnce() {
-  // cull escapes
+  // Kill any escapees / outside silhouette
   for (const g of grains) {
     if (g._removed) continue;
-    if (!isInside(g.position) && (g.position.y < -H-10 || g.position.y > H+10 || Math.abs(g.position.x) > bulb + 30)) {
-      Composite.remove(engine.world, g); g._removed = true;
-    }
+    if (shouldCullOutside(g)) { Composite.remove(engine.world, g); g._removed = true; continue; }
   }
 
   // Sleep only deep in bottom bulb
@@ -371,95 +351,104 @@ function stepOnce() {
     const yLoc = localY(g.position);
     const speed = Math.hypot(g.velocity.x, g.velocity.y);
     if (yLoc >= sleepOnlyBelowY) {
-      if (speed < sleepVel) g._sleepAccum += DT*1000; else g._sleepAccum = 0;
-      if (g._sleepAccum >= sleepMs) { Composite.remove(engine.world, g); g._removed = true; continue; }
+      if (!g.isStatic) {
+        if (speed < sleepVel) g._sleepAccum += DT*1000; else g._sleepAccum = 0;
+        if (g._sleepAccum >= sleepMs) {
+          if (sleepMode === "remove") {
+            Composite.remove(engine.world, g); g._removed = true; continue;
+          } else if (sleepMode === "sleep") {
+            Sleeping.set(g, true); g._softSleeping = true; g._sleepAccum = 0;
+          } else { // "static" default
+            Body.setVelocity(g, {x:0,y:0});
+            Body.setAngularVelocity(g, 0);
+            Body.setStatic(g, true);
+            g.isSensor = false;
+            g._sleepAccum = 0;
+          }
+        }
+      }
     } else {
       g._sleepAccum = 0;
     }
     g._prevLocalY = yLoc;
   }
 
-  // Anti-stick above the neck
+  // Anti-stick above the neck + wall slip + gentle bias
   const nowMs = frames / fps * 1000;
   for (const g of grains) {
     if (g._removed) continue;
     const p = g.position;
     const yLoc = localY(p);
-    if (yLoc >= 0) continue; // only above neck
+    if (yLoc >= 0) continue;
 
-    const dx = p.x - g._lastPos.x;
-    const dy = p.y - g._lastPos.y;
+    const dx = p.x - (g._lastPos?.x ?? p.x);
+    const dy = p.y - (g._lastPos?.y ?? p.y);
     const moved = Math.hypot(dx, dy);
     const spd = Math.hypot(g.velocity.x, g.velocity.y);
 
-    if (spd < stuckVelPx && moved < stuckDistPx) g._stuckAccum += DT*1000; else g._stuckAccum = 0;
+    // stick kick
+    const stuckVelPx = 0.18, stuckDistPx = 0.25, stuckKickAfterMs = 1000, stuckKickCooldownMs = 300;
+    const stuckKickF = 1.8e-4, stuckKickInwardF = 1.2e-4;
 
-    if (g._stuckAccum >= stuckKickAfterMs && (nowMs - g._lastKickAt) >= stuckKickCooldownMs) {
+    if (spd < stuckVelPx && moved < stuckDistPx) g._stuckAccum = (g._stuckAccum || 0) + DT*1000; else g._stuckAccum = 0;
+    if (g._stuckAccum >= stuckKickAfterMs && (nowMs - (g._lastKickAt||-1e9)) >= stuckKickCooldownMs) {
       const inward = (p.x >= 0) ? -1 : +1;
       Body.applyForce(g, p, { x: inward * stuckKickInwardF, y: +stuckKickF });
       g._lastKickAt = nowMs;
     }
-    if (g._stuckAccum >= stuckInjectAfterMs) {
-      const inward = (p.x >= 0) ? -1 : +1;
-      Body.setVelocity(g, { x: g.velocity.x + inward * stuckInjectVx, y: g.velocity.y + stuckInjectVy });
-      g._stuckAccum = stuckKickAfterMs * 0.5;
-      g._lastKickAt = nowMs;
-    }
 
-    g._lastPos.x = p.x; g._lastPos.y = p.y;
-  }
-
-  const topCount = countTopInside();
-  const stalled = (stallFrames / fps) > unclogDelaySec;
-
-  // Safer activation: only when top is *not* crowded
-  const wantFlusher =
-    useFlushers &&
-    (topCount <= flusherTopCount || (stalled && topCount <= Math.max(flusherTopCount, rescueTopCount * 2)));
-
-  // Adaptive gravity wobble
-  const tSec = frames / fps;
-  const amp = currentVibeAmpDeg(topCount);
-  const ang = (tiltDeg + amp * Math.sin(2 * Math.PI * vibeHz * tSec)) * Math.PI/180;
-  engine.gravity.x = Math.sin(ang);
-  engine.gravity.y = Math.cos(ang);
-
-  // Flusher FSM (down -> hold -> teleport up -> cooldown), BELOW NECK ONLY
-  if (useFlushers && flushers.length) {
-    flStateT += DT;
-    if (!wantFlusher) {
-      if (flState !== "idle") parkFlushersOffscreen();
-    } else {
-      if (flState === "idle") {
-        // start just below the neck; collisions enabled (we also guard below)
-        for (const f of flushers) f.isSensor = false;
-        setFlushersY(flusherYTop);
-        flState = "down"; flStateT = 0;
-      } else if (flState === "down") {
-        const yStart = flusherYTop;
-        const yEnd   = flusherYTop + sweepDepthY;
-        const u = Math.max(0, Math.min(1, flStateT / sweepDownSec));
-        const ease = 0.5 - 0.5*Math.cos(Math.PI*u);
-        const y = yStart + (yEnd - yStart) * ease;
-        // guard: never collide above neck
-        for (const f of flushers) f.isSensor = flusherNeverAboveNeck && (y < 0);
-        setFlushersY(y);
-        setFlushersX(tSec, 1);
-        if (flStateT >= sweepDownSec) { flState = "hold"; flStateT = 0; }
-      } else if (flState === "hold") {
-        setFlushersX(tSec, 2.2);
-        if (flStateT >= sweepHoldSec) {
-          for (const f of flushers) f.isSensor = true;
-          setFlushersY(-H - 1000);
-          flState = "cooldown"; flStateT = 0;
+    if (unclogAssist) {
+      // wall slip
+      const limit = xHalf(yLoc) - (r + 0.05);
+      const nearWall = Math.abs(Math.abs(p.x) - limit) <= wallSlipPx;
+      if (nearWall && spd < wallSlipVel) {
+        const last = g._lastWallKickAt || -1e9;
+        if (nowMs - last >= wallSlipCooldownMs) {
+          const inward = (p.x >= 0) ? -1 : +1;
+          Body.applyForce(g, p, { x: inward * wallSlipKickF, y: wallSlipKickDownF });
+          g._lastWallKickAt = nowMs;
         }
-      } else if (flState === "cooldown") {
-        if (flStateT >= sweepCooldownSec) { flState = "idle"; flStateT = 0; }
+      }
+
+      // gentle bias band
+      {
+        const limit2 = xHalf(yLoc) - (r + 0.05);
+        const dist = Math.abs(limit2 - Math.abs(p.x));
+        if (dist <= wallBiasBandPx) {
+          const inward = (p.x >= 0) ? -1 : +1;
+          Body.applyForce(g, p, { x: inward * wallBiasInF, y: wallBiasDownF });
+        }
       }
     }
+
+    g._lastPos = { x: p.x, y: p.y };
   }
 
-  Engine.update(engine, DT*1000);
+  // Gravity wobble (only if unclog assist is on), else fixed tilt
+  if (unclogAssist) {
+    const topCount = countTopInside();
+    const tSec = frames / fps;
+    const amp = currentVibeAmpDeg(topCount);
+    const ang = (tiltDeg + amp * Math.sin(2 * Math.PI * vibeHz * tSec)) * Math.PI/180;
+    engine.gravity.x = Math.sin(ang);
+    engine.gravity.y = Math.cos(ang);
+
+    const stalled = (stallFrames / fps) > unclogDelaySec;
+    if (stalled) pulseNeck(topCount);
+  } else {
+    const ang = tiltDeg * Math.PI/180;
+    engine.gravity.x = Math.sin(ang);
+    engine.gravity.y = Math.cos(ang);
+  }
+
+  // Substeps + clamp
+  const dtMs = (DT * 1000) / SUBSTEPS;
+  for (let s=0; s<SUBSTEPS; s++) Engine.update(engine, dtMs);
+  for (const g of grains) {
+    if (g._removed) continue;
+    const vx = g.velocity.x, vy = g.velocity.y, sp = Math.hypot(vx,vy);
+    if (sp > MAX_SPEED) { const m = MAX_SPEED/sp; Body.setVelocity(g, {x:vx*m,y:vy*m}); }
+  }
 
   // Flow detection
   let flowed = false;
@@ -472,8 +461,6 @@ function stepOnce() {
   else { stallFrames++; pulseAccum += DT; }
 
   if (lastCrossFrame == null && topBulbEmptyNow()) lastCrossFrame = frames;
-
-  pulseNeck(topCount);
 
   recordFrame();
   frames++;
@@ -499,36 +486,35 @@ function loop() {
   if (outputMode === "dense") {
     binStream.end();
   } else {
-    const sbinPath = path.join(outDir, `${nameBase}.sbin`);
-    const fd = fs.openSync(sbinPath, "r+");
+    const fd = fs.openSync(sbinFsPath, "r+");
     const buf = Buffer.allocUnsafe(4); buf.writeUInt32LE(frames, 0);
-    fs.writeSync(fd, buf, 0, 4, 4+2+4); fs.closeSync(fd);
+    // header: "HGSB"(4) + u16 Q (2) + u32 grains (4) + u32 frames (4) -> frames at offset 10
+    fs.writeSync(fd, buf, 0, 4, 10); fs.closeSync(fd);
     sbinStream.end();
   }
 
   const json = {
     meta: { duration, fps, grains:grainsN, full, neck, H, bulb, r, bounce, friction, tiltDeg, slat, c1, c2, Q, mode:outputMode,
-            wallThickness, sleepOnlyBelowFrac,
-            antiClog:{ vibeAmpBaseDeg, vibeAmpMaxDeg, vibeHz, unclogDelaySec, rescueTopCount, pulseEverySec, pulseZoneY, pulseTopOnly, pulseForce, rescueDownBias },
-            flushers:{ useFlushers, flusherCount, flusherR, flusherAmp, flusherYTop, flusherHz, flusherTopCount,
-                       sweepDepthY, sweepDownSec, sweepHoldSec, sweepCooldownSec, flusherEdgeGap, flusherNeverAboveNeck },
-            antiStick:{ stuckKickAfterMs, stuckVelPx, stuckDistPx, stuckKickF, stuckKickInwardF, stuckKickCooldownMs, stuckInjectAfterMs, stuckInjectVy, stuckInjectVx } },
+            wallThickness, sleepOnlyBelowFrac, sleepMode,
+            outsideKillPad, outsideCullFrames, hardKillPad, strictKillPad, unclogAssist,
+            wallSlipPx, wallSlipVel, wallSlipKickF, wallSlipKickDownF, wallSlipCooldownMs,
+            wallBiasBandPx, wallBiasInF, wallBiasDownF },
     frames, fps,
     lastCrossFrame: lastCrossFrame ?? null,
-    ...(outputMode === "dense" ? { bin:`bakes/${nameBase}.bin` } : { sbin:`bakes/${nameBase}.sbin` })
+    ...(outputMode === "dense" ? { bin:  binUrlPath } : { sbin: sbinUrlPath })
   };
   fs.writeFileSync(jsonPath, JSON.stringify(json, null, 2), "utf-8");
 
   // index.json
   const indexPath = path.join(outDir, "index.json");
   let idx = []; try { idx = JSON.parse(fs.readFileSync(indexPath, "utf-8")); } catch {}
-  const entry = { file:`bakes/${path.basename(jsonPath)}`, label:nameBase, duration, fps, grains:grainsN, neck, c1, c2, lastCrossFrame: lastCrossFrame ?? null, date:new Date().toISOString() };
+  const entry = { file:path.posix.join("bakes", path.basename(jsonPath)), label:nameBase, duration, fps, grains:grainsN, neck, c1, c2, lastCrossFrame: lastCrossFrame ?? null, date:new Date().toISOString() };
   const i = idx.findIndex(e => e.file === entry.file);
   if (i >= 0) idx[i] = entry; else idx.push(entry);
   idx.sort((a,b)=> new Date(b.date) - new Date(a.date));
   fs.writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf-8");
 
-  console.log("BAKE " + JSON.stringify({ event:"done", file:`bakes/${path.basename(jsonPath)}`, frames, fps, lastCrossFrame: lastCrossFrame ?? null }));
+  console.log("BAKE " + JSON.stringify({ event:"done", file:path.posix.join("bakes", path.basename(jsonPath)), frames, fps, lastCrossFrame: lastCrossFrame ?? null }));
 }
 
 setImmediate(loop);

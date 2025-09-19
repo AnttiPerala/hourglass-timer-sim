@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "duration": 120,
+    "fps": 60,
+    "grains": 3000,
+    "full": 0.1,
+    "neck": 18,
+    "H": 500,
+    "bulb": 220,
+    "r": 3,
+    "bounce": 0.12,
+    "friction": 0.02,
+    "tiltDeg": 1.5,
+    "slat": 0,
+    "c1": 0.2,
+    "c2": 0.5,
+    "Q": 32,
+    "mode": "sparse",
+    "wallThickness": 10,
+    "sleepOnlyBelowFrac": 0.58,
+    "sleepMode": "static",
+    "outsideKillPad": 0.5,
+    "outsideCullFrames": 2
+  },
+  "frames": 7200,
+  "fps": 60,
+  "lastCrossFrame": 195,
+  "sbin": "/bakes/hourglass_120s_neck18_g3000_sparse_Q32_mfq0ck38-atnx33.sbin"
+}

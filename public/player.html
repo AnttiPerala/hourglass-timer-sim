@@ -1,377 +1,394 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/>
+  <meta charset="utf-8" />
   <title>Hourglass Player</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:980px;margin:20px auto;padding:0 16px;}
-    canvas{border:1px solid #ccc;border-radius:8px;display:block;margin:8px 0;max-width:100%;image-rendering:pixelated;}
-    .ctrls{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
-    .msg{padding:8px 12px;border-radius:8px;background:#fee;border:1px solid #f99;display:none}
-    input[type="number"]{width:120px; padding:6px 8px; border:1px solid #ccc; border-radius:8px;}
-    button{padding:8px 12px; border:0; border-radius:8px; background:#111; color:#fff; cursor:pointer;}
-    button.secondary{background:#666}
-    .muted{color:#666}
-    .clock{font-variant-numeric: tabular-nums; font-weight:700;}
-    .clock-label{color:#444}
-    .clock-box{display:flex; gap:14px; align-items:center; flex-wrap:wrap;}
+    :root { --bg:#0b0b0b; --fg:#f5f5f5; --muted:#a3a3a3; --line:#1f2937; --accent:#60a5fa; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    header h1 { margin:0; font-size:16px; font-weight:700; }
+    .controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .controls input[type="range"] { width:240px; }
+    .chip { background:#111827; border:1px solid #374151; color:#e5e7eb; padding:3px 8px; border-radius:10px; font-size:12px; }
+    .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .spacer { flex:1; }
+    .muted { color: var(--muted); }
+    .panel { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; }
+    #drop { display:inline-flex; align-items:center; gap:8px; background:#111827; border:1px dashed #374151; padding:6px 10px; border-radius:8px; cursor:pointer; }
+    #msg { padding:10px 16px; color:#fca5a5; }
+    canvas { display:block; width:100%; height:auto; background:#0b0b0b; }
+    a { color: var(--accent); text-decoration:none; }
+    a:hover { text-decoration:underline; }
   </style>
 </head>
 <body>
-  <h1>Hourglass Player</h1>
-  <div class="ctrls">
-    <label>Open JSON: <input type="file" id="file" accept="application/json"></label>
-    <span id="lcInfo" class="muted" style="margin-left:auto"></span>
-  </div>
-  <p id="err" class="msg"></p>
-  <canvas id="cv" width="720" height="720"></canvas>
+  <header>
+    <h1>Hourglass Player</h1>
+    <div class="controls">
+      <button id="btnPlay">Play</button>
+      <button id="btnPause">Pause</button>
+      <label>Frame <input id="range" type="range" min="0" max="0" value="0"></label>
+      <span id="lblFrame" class="chip">0 / 0</span>
+      <span id="lblFps" class="chip">fps: 0</span>
+      <button id="btnJump" title="Jump to lastCrossFrame if available">Jump to lastCross</button>
+      <span id="clock" class="chip" title="Seconds left (aligned to lastCross if available)">00:00</span>
+      <div class="spacer"></div>
+      <div class="row">
+        <label for="url">Open bake URL:</label>
+        <input id="url" placeholder="/bakes/your-bake.json" size="36">
+        <button id="btnOpen">Open</button>
+      </div>
+      <label id="drop">
+        <input id="file" type="file" accept=".json,application/json" hidden>
+        <span>Open JSON file…</span>
+      </label>
+    </div>
+  </header>
 
-  <div class="ctrls">
-    <button id="play">Play</button>
-    <button id="pause" class="secondary">Pause</button>
-    <label>Frame: <input id="slider" type="range" min="0" max="0" step="1" value="0"></label>
-    <span id="finfo">0/0</span>
-    <span>Base FPS: <b id="fpsVal">0</b></span>
-    <span>Effective FPS: <b id="effFpsVal">0</b></span>
-    <button id="jump">Jump to lastCrossFrame</button>
-  </div>
+  <div id="msg"></div>
+  <canvas id="c"></canvas>
 
-  <div class="ctrls">
-    <label>Align last-cross to (s):
-      <input id="alignSec" type="number" step="0.1" placeholder="e.g. 60">
-    </label>
-    <button id="align60" class="secondary">60s</button>
-    <button id="alignReset" class="secondary">Reset alignment</button>
-    <span class="muted">Playback rate scales so lastCross lands exactly at this time (if known).</span>
-  </div>
+  <script>
+  // ----- state -----
+  let ctx, canvas;
+  let meta = null;
+  let frames = 0;
+  let fps = 0;
+  let lastCrossFrame = null;
+  let Q = 32;
+  let rPx = 2;
+  let denseData = null; // Uint16Array for dense
+  let sparse = null;    // sparse reader
+  let playing = false;
+  let cur = 0;
+  let jsonBase = null;  // base URL of the loaded JSON (for resolving bin/sbin)
+  let alignSeconds = null; // computed from lastCross and desired total
+  let rafId = null;
 
-  <div class="clock-box">
-    <span class="clock-label">Time left (to last-cross):</span>
-    <span id="clockLC" class="clock">—</span>
-    <span class="clock-label">Time left (to end):</span>
-    <span id="clockEnd" class="clock">—</span>
-  </div>
+  const $ = (id) => document.getElementById(id);
+  function showErr(s){ $("msg").textContent = "Failed to load: " + s; }
+  function clearMsg(){ $("msg").textContent = ""; }
 
-<script>
-const $ = (s)=>document.querySelector(s);
-function showErr(msg){ const el=$("#err"); el.textContent=msg; el.style.display="block"; }
+  // ----- URL helpers -----
+  const normPath = (p) => String(p).replace(/\\\\/g,'/').replace(/\\+/g,'/'); // normalize backslashes
 
-const urlParams = new URLSearchParams(location.search);
-const bakeUrl = urlParams.get("bake");
+  function getQuery(name){
+    const u = new URL(location.href);
+    return u.searchParams.get(name);
+  }
 
-let meta=null, frames=0, fps=0, lastCrossFrame=null, Q=32, bulb=220, H=500, neck=12, c1=0, c2=0, slat=0, tiltDeg=0, grainR=2;
-let mode="dense";
-let denseData=null; // Uint16Array
-let sparse=null;    // sparse reader
-let alignSec=null;  // seconds to align lastCross to
-let tick=null, cur=0, playing=false;
+  // ----- sbin decoding (HGSB u16 Q, u32 grains, u32 frames; per frame: u16 count, records of varint index + u16 qx + u16 qy) -----
+  function makeSparseReader(buffer){
+    const dv = new DataView(buffer);
+    let off = 0;
+    function readU8(){ const v = dv.getUint8(off); off+=1; return v; }
+    function readU16(){ const v = dv.getUint16(off, true); off+=2; return v; }
+    function readU32(){ const v = dv.getUint32(off, true); off+=4; return v; }
+    function readVarint(){
+      let x = 0, s = 0, b;
+      do { b = readU8(); x |= (b & 0x7f) << s; s += 7; } while (b & 0x80);
+      return x >>> 0;
+    }
 
-// ---- same curve as bake.js (walls are not rotated visually) ----
-function xHalf(y) {
-  const ay = Math.abs(y);
-  const t = Math.min(1, ay / H);
-  const bump = t * (1 - t);
-  let s = t + c1 * bump + c2 * (2 * bump * (t - 0.5));
-  s = Math.max(0, Math.min(1, s));
-  return (neck / 2) + (bulb - neck / 2) * s;
-}
+    // header
+    const magic = String.fromCharCode(readU8(),readU8(),readU8(),readU8());
+    if (magic !== "HGSB") throw new Error("bad magic");
+    const q = readU16();
+    const grains = readU32();
+    const totalFrames = readU32();
 
-// Sparse reader that streams per-frame changes
-function makeSparseReader(buf){
-  const dv = new DataView(buf);
-  let off=0;
-  function rdU8(){ const v=dv.getUint8(off); off+=1; return v; }
-  function rdU16(){ const v=dv.getUint16(off, true); off+=2; return v; }
-  function rdU32(){ const v=dv.getUint32(off, true); off+=4; return v; }
-  function rdVar(){ let shift=0,n=0; while(true){ const b=rdU8(); n |= (b & 0x7f) << shift; if((b&0x80)===0) break; shift+=7; } return n>>>0; }
-
-  const m = String.fromCharCode(rdU8(), rdU8(), rdU8(), rdU8());
-  if (m !== "HGSB") throw new Error("Bad sparse magic");
-  const q = rdU16(); const grains = rdU32(); const fr = rdU32();
-  const last = new Uint16Array(grains*2);
-  let frameIdx=0;
-  return {
-    grains, q, frames: fr,
-    getFrame(i){ if (i<frameIdx) { off = 4+2+4+4; frameIdx=0; last.fill(0); }
-      while(frameIdx <= i){
-        if (frameIdx === fr) break;
-        const count = rdU16();
-        for(let k=0;k<count;k++){
-          const idx = rdVar();
-          const qx = rdU16();
-          const qy = rdU16();
-          last[idx*2] = qx;
-          last[idx*2+1] = qy;
-        }
-        frameIdx++;
+    // index offsets per frame (so we can jump)
+    const frameOffsets = new Uint32Array(totalFrames);
+    frameOffsets[0] = off;
+    // walk once to collect offsets (small and fast)
+    for (let f=0; f<totalFrames; f++){
+      const start = off;
+      const count = readU16();
+      for (let i=0;i<count;i++){
+        readVarint(); // idx
+        off += 2 + 2; // qx,qy
       }
+      if (f+1 < totalFrames) frameOffsets[f+1] = off;
+    }
+
+    // last-known positions, filled lazily
+    const last = new Uint16Array(grains*2);
+    let lastFrameApplied = -1;
+
+    function applyFrame(target){
+      if (target < 0) target = 0;
+      if (target >= totalFrames) target = totalFrames-1;
+      // If moving backward, reset and replay
+      if (target < lastFrameApplied){
+        last.fill(0);
+        lastFrameApplied = -1;
+      }
+      for (let f = lastFrameApplied+1; f <= target; f++){
+        let k = frameOffsets[f];
+        const count = new DataView(buffer).getUint16(k, true); k+=2;
+        let ptr = k;
+        for (let i=0; i<count; i++){
+          // read varint idx
+          let x=0, s=0, b;
+          do { b = new DataView(buffer).getUint8(ptr); ptr+=1; x |= (b & 0x7f) << s; s += 7; } while (b & 0x80);
+          const idx = x >>> 0;
+          const qx = new DataView(buffer).getUint16(ptr, true); ptr+=2;
+          const qy = new DataView(buffer).getUint16(ptr, true); ptr+=2;
+          const base = idx*2;
+          last[base] = qx;
+          last[base+1] = qy;
+        }
+      }
+      lastFrameApplied = target;
       return last;
     }
-  };
-}
 
-async function loadJSON(urlOrFile){
-  try {
-    let json;
-    if (typeof urlOrFile === "string"){
-      const res = await fetch(urlOrFile);
-      if (!res.ok) throw new Error("HTTP "+res.status);
-      json = await res.json();
-    } else {
-      const txt = await urlOrFile.text();
-      json = JSON.parse(txt);
+    return { grains, frames: totalFrames, Q:q, last, applyFrame };
+  }
+
+  // ----- load JSON (from URL or File) -----
+  async function loadJSON(urlOrFile){
+    try {
+      clearMsg();
+      let json;
+      if (typeof urlOrFile === "string"){
+        const res = await fetch(urlOrFile);
+        if (!res.ok) throw new Error("HTTP "+res.status);
+        json = await res.json();
+        jsonBase = new URL(urlOrFile, location.href);
+      } else {
+        const txt = await urlOrFile.text();
+        json = JSON.parse(txt);
+        jsonBase = new URL(location.href);
+      }
+
+      // meta
+      meta = json.meta || {};
+      fps = Number(json.fps || (meta && meta.fps)) || 60;
+      frames = Number(json.frames) || 0;
+      lastCrossFrame = (json.lastCrossFrame ?? null);
+      Q = Number((meta && meta.Q) || json.Q) || 32;
+      rPx = Number(meta && meta.r) || 2;
+
+      // dense/sparse/data
+      denseData = null; sparse = null;
+
+      const norm = (p) => normPath(p);
+
+      if (json.data){
+        const bytes = atob(json.data);
+        const buf = new Uint8Array(bytes.length);
+        for (let i=0;i<bytes.length;i++) buf[i] = bytes.charCodeAt(i);
+        denseData = new Uint16Array(buf.buffer);
+      } else if (Array.isArray(json.u16)){
+        denseData = new Uint16Array(json.u16);
+      } else if (json.bin){
+        const binUrl = new URL(norm(json.bin), jsonBase);
+        const res = await fetch(binUrl);
+        if (!res.ok) throw new Error("bin fetch "+res.status);
+        const buf = await res.arrayBuffer();
+        denseData = new Uint16Array(buf);
+      } else if (json.sbin){
+        const sbinUrl = new URL(norm(json.sbin), jsonBase);
+        const res = await fetch(sbinUrl);
+        if (!res.ok) throw new Error("sbin fetch "+res.status);
+        const buf = await res.arrayBuffer();
+        sparse = makeSparseReader(buf);
+        // prefer header values if present
+        if (!frames && sparse.frames) frames = sparse.frames;
+        if (!Q && sparse.Q) Q = sparse.Q;
+      } else {
+        showErr("No data/u16/bin/sbin found in JSON");
+        return;
+      }
+
+      // setup canvas
+      initCanvas();
+      // UI
+      $("lblFps").textContent = "fps: " + fps;
+      $("range").max = String(Math.max(0, frames-1));
+      $("lblFrame").textContent = `${cur} / ${frames-1}`;
+      // compute clock alignment if lastCross present (align to whole minutes default 60s)
+      updateClock();
+
+      draw();
+    } catch (e) {
+      showErr(String(e.message || e));
+      console.error(e);
     }
-    meta = json.meta || {};
-    frames = json.frames || 0;
-    fps = json.fps || 60;
-    lastCrossFrame = json.lastCrossFrame ?? null;
-
-    // meta values (with sane defaults)
-    Q = meta.Q ?? 32;
-    bulb = meta.bulb ?? 220;
-    H = meta.H ?? 500;
-    neck = meta.neck ?? 12;
-    c1 = meta.c1 ?? 0;
-    c2 = meta.c2 ?? 0;
-    slat = meta.slat ?? 0;
-    tiltDeg = meta.tiltDeg ?? 0; // used only for info; not rotating visuals
-    grainR = meta.r ?? 2;
-
-    mode = meta.mode || (json.bin ? "dense" : json.sbin ? "sparse" : "legacy");
-    $("#fpsVal").textContent = fps;
-    $("#slider").max = Math.max(0, frames-1);
-    $("#finfo").textContent = `0/${Math.max(0, frames-1)}`;
-
-    if (json.data){
-      const bin = atob(json.data);
-      const arr = new Uint16Array(bin.length/2);
-      for(let i=0;i<arr.length;i++) arr[i] = (bin.charCodeAt(2*i) | (bin.charCodeAt(2*i+1)<<8));
-      denseData = arr;
-    } else if (Array.isArray(json.u16)){
-      denseData = new Uint16Array(json.u16);
-    } else if (json.bin){
-      const res = await fetch(json.bin);
-      if (!res.ok) throw new Error("bin fetch "+res.status);
-      const buf = await res.arrayBuffer();
-      denseData = new Uint16Array(buf);
-    } else if (json.sbin){
-      const res = await fetch(json.sbin);
-      if (!res.ok) throw new Error("sbin fetch "+res.status);
-      const buf = await res.arrayBuffer();
-      sparse = makeSparseReader(buf);
-    } else {
-      showErr("No data/u16/bin/sbin provided in bake — using empty buffer");
-    }
-
-    // lastCross info
-    const tActual = (lastCrossFrame != null) ? (lastCrossFrame / fps) : null;
-    $("#lcInfo").textContent = (tActual != null)
-      ? `lastCross at frame ${lastCrossFrame} (${tActual.toFixed(2)} s). Tilt (gravity only): ${tiltDeg.toFixed(2)}°`
-      : `lastCross not available. Tilt (gravity only): ${tiltDeg.toFixed(2)}°`;
-
-    updateEffFpsDisplay();
-    updateClocks();
-  } catch (e) {
-    showErr("Failed to load: " + e.message);
   }
-}
 
-const cv = $("#cv"), ctx = cv.getContext("2d");
-
-function drawOutline(s){
-  // Pixel-constant stroke: set width in world units as 1/s
-  ctx.save();
-  ctx.lineWidth = 1 / s;
-  ctx.strokeStyle = "#999";
-  ctx.beginPath();
-  const segs = 200;
-  // Right side: y = -H .. +H
-  for (let i=0;i<=segs;i++){
-    const y = -H + (2*H)*(i/segs);
-    const x = xHalf(y);
-    if (i===0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  function initCanvas(){
+    canvas = $("c");
+    ctx = canvas.getContext("2d");
+    // fit width to container, compute height from H
+    const H = Number(meta && meta.H) || 500;
+    const bulb = Number(meta && meta.bulb) || 220;
+    const pad = 40;
+    const w = bulb*2 + pad*2;
+    const h = H*2 + pad*2;
+    const ratio = (window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * ratio);
+    canvas.height = Math.round(h * ratio);
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    ctx.setTransform(ratio,0,0,ratio,0,0);
   }
-  // Left side back: y = +H .. -H
-  for (let i=segs;i>=0;i--){
-    const y = -H + (2*H)*(i/segs);
-    const x = -xHalf(y);
-    ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.stroke();
 
-  if (slat > 0){
+  // ----- rendering helpers -----
+  function xHalf(y){
+    const H = Number(meta && meta.H) || 500;
+    const neck = Number(meta && meta.neck) || 12;
+    const bulb = Number(meta && meta.bulb) || 220;
+    const c1 = Number(meta && meta.c1) || 0;
+    const c2 = Number(meta && meta.c2) || 0;
+    const ay = Math.abs(y);
+    const t = Math.min(1, ay / H);
+    const bump = t*(1-t);
+    let s = t + c1 * bump + c2 * (2 * bump * (t - 0.5));
+    s = Math.max(0, Math.min(1, s));
+    return (neck/2) + (bulb - neck/2) * s;
+  }
+
+  function drawOutline(){
+    if (!meta) return;
+    const H = Number(meta.H || 500);
+    const bulb = Number(meta.bulb || 220);
+    const pad = 40;
+    const cx = pad + bulb;
+    const cy = pad + H;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
     ctx.beginPath();
-    ctx.moveTo(-slat/2, 0);
-    ctx.lineTo( slat/2, 0);
+    const segs = 140;
+    for (let i=0;i<=segs;i++){
+      const y = -H + (2*H)*i/segs;
+      const x = xHalf(y);
+      const X = x, Y = y;
+      if (i===0) ctx.moveTo(+X, Y); else ctx.lineTo(+X, Y);
+    }
+    for (let i=segs;i>=0;i--){
+      const y = -H + (2*H)*i/segs;
+      const x = -xHalf(y);
+      ctx.lineTo(x, y);
+    }
+    ctx.closePath();
     ctx.stroke();
+    ctx.restore();
   }
-  ctx.restore();
-}
 
-function drawFrame(f){
-  ctx.clearRect(0,0,cv.width,cv.height);
-  ctx.save();
-  const worldW = (bulb*2 + 40);
-  const worldH = (H*2 + 40);
-  const sx = cv.width / worldW;
-  const sy = cv.height / worldH;
-  const s = Math.min(sx, sy);
-  ctx.translate(cv.width/2, cv.height/2);
-  ctx.scale(s, s);
+  function quantToXY(i){
+    const bulb = Number(meta && meta.bulb) || 220;
+    const H = Number(meta && meta.H) || 500;
+    const qx = (denseData[i] ?? 0);
+    const qy = (denseData[i+1] ?? 0);
+    const x = qx / Q - bulb - 5;
+    const y = qy / Q - H - 5;
+    return [x,y];
+  }
 
-  // NOTE: We do NOT rotate visuals by tiltDeg anymore.
-  // Tilt influences gravity in the bake only.
+  function quantToXYFromLast(last, base){
+    const bulb = Number(meta && meta.bulb) || 220;
+    const H = Number(meta && meta.H) || 500;
+    const qx = last[base];
+    const qy = last[base+1];
+    const x = qx / Q - bulb - 5;
+    const y = qy / Q - H - 5;
+    return [x,y];
+  }
 
-  // Outline first
-  drawOutline(s);
+  function draw(){
+    if (!ctx) return;
+    const H = Number(meta && meta.H) || 500;
+    const bulb = Number(meta && meta.bulb) || 220;
+    const pad = 40;
+    const cx = pad + bulb;
+    const cy = pad + H;
 
-  // Grains — radius in world units (scales with s)
-  const drawOne = (x, y) => {
-    ctx.beginPath();
-    ctx.arc(x, y, grainR, 0, Math.PI*2);
-    ctx.fill();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawOutline();
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    const rad = Number(rPx) || 2;
+
+    if (denseData){
+      const base = cur * (frames>0 ? (denseData.length / frames) : 0);
+      // draw grains
+      for (let i=0; i< (denseData.length/frames); i+=2){
+        const [x,y] = quantToXY(base + i);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI*2);
+        ctx.fillStyle = "#e5e7eb";
+        ctx.fill();
+      }
+    } else if (sparse){
+      const last = sparse.applyFrame(cur);
+      const grains = last.length/2;
+      for (let gi=0; gi<grains; gi++){
+        const [x,y] = quantToXYFromLast(last, gi*2);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI*2);
+        ctx.fillStyle = "#e5e7eb";
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function tick(){
+    if (!playing) return;
+    cur = Math.min(frames-1, cur+1);
+    $("range").value = String(cur);
+    $("lblFrame").textContent = `${cur} / ${frames-1}`;
+    updateClock();
+    draw();
+    if (cur >= frames-1){ playing = false; return; }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function updateClock(){
+    // If lastCross known, show time-to-lastCross (positive) or since (negative)
+    if (lastCrossFrame == null){
+      $("clock").textContent = "—";
+      return;
+    }
+    const secTo = (lastCrossFrame - cur) / (fps || 1);
+    const s = Math.max(0, Math.round(secTo));
+    const mm = String(Math.floor(s/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    $("clock").textContent = `${mm}:${ss}`;
+  }
+
+  // ----- UI -----
+  $("btnPlay").onclick = () => { if (frames>0 && !playing){ playing = true; cancelAnimationFrame(rafId); rafId = requestAnimationFrame(tick); }};
+  $("btnPause").onclick = () => { playing = false; cancelAnimationFrame(rafId); };
+  $("range").oninput = (e) => { playing = false; cur = Number(e.target.value)||0; $("lblFrame").textContent = `${cur} / ${frames-1}`; updateClock(); draw(); };
+  $("btnJump").onclick = () => { if (lastCrossFrame != null){ cur = Math.min(frames-1, Math.max(0, lastCrossFrame)); $("range").value = String(cur); $("lblFrame").textContent = `${cur} / ${frames-1}`; updateClock(); draw(); }};
+  $("btnOpen").onclick = () => {
+    const u = $("url").value.trim();
+    if (!u) return;
+    loadJSON(u);
   };
-
-  ctx.fillStyle = "#111";
-  if (denseData){
-    const grains = (meta && meta.grains) ? meta.grains : (denseData.length / Math.max(1, frames*2));
-    const base = f * grains * 2;
-    for (let i=0;i<grains;i++){
-      const qx = denseData[base + i*2];
-      const qy = denseData[base + i*2 + 1];
-      const x = qx / Q - bulb - 5;
-      const y = qy / Q - H - 5;
-      drawOne(x, y);
-    }
-  } else if (sparse){
-    const qbuf = sparse.getFrame(f);
-    for (let i=0;i<qbuf.length;i+=2){
-      const x = qbuf[i] / Q - bulb - 5;
-      const y = qbuf[i+1] / Q - H - 5;
-      drawOne(x, y);
-    }
-  }
-  ctx.restore();
-}
-
-// --- Alignment logic ---
-function getPlaybackRate(){
-  if (alignSec == null || !isFinite(alignSec) || alignSec <= 0 || lastCrossFrame == null) return 1;
-  const tActual = lastCrossFrame / fps;
-  const m = tActual / alignSec; // scale so lastCross lands at alignSec
-  return m > 0 ? m : 1;
-}
-function updateEffFpsDisplay(){
-  const eff = fps * getPlaybackRate();
-  $("#effFpsVal").textContent = eff.toFixed(2);
-}
-
-// --- Digital clocks ---
-function fmtClock(s){
-  if (!isFinite(s) || s < 0) s = 0;
-  const mm = Math.floor(s / 60);
-  const ss = Math.floor(s % 60);
-  const tenths = Math.floor((s - Math.floor(s)) * 10);
-  return `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}.${tenths}`;
-}
-function updateClocks(){
-  const eff = fps * getPlaybackRate();
-  if (frames > 0 && eff > 0){
-    // to last-cross
-    if (lastCrossFrame != null){
-      const remFramesLC = Math.max(0, lastCrossFrame - cur);
-      const secLC = remFramesLC / eff;
-      $("#clockLC").textContent = fmtClock(secLC);
-    } else {
-      $("#clockLC").textContent = "—";
-    }
-    // to end
-    const remFramesEnd = Math.max(0, (frames - 1) - cur);
-    const secEnd = remFramesEnd / eff;
-    $("#clockEnd").textContent = fmtClock(secEnd);
-  } else {
-    $("#clockLC").textContent = "—";
-    $("#clockEnd").textContent = "—";
-  }
-}
-
-// --- Playback ---
-function startTick(){
-  stopTick();
-  const interval = 1000 / Math.max(1e-6, fps * getPlaybackRate());
-  tick = setInterval(()=>{
-    if (frames <= 0) return;
-    cur = (cur+1) % frames;
-    $("#slider").value = cur;
-    $("#finfo").textContent = `${cur}/${frames-1}`;
-    drawFrame(cur);
-    updateClocks();
-  }, interval);
-}
-function stopTick(){ if (tick){ clearInterval(tick); tick=null; } }
-
-function play(){ if (playing || frames<=0) return; playing=true; startTick(); }
-function pause(){ playing=false; stopTick(); }
-
-$("#play").onclick = play;
-$("#pause").onclick = pause;
-$("#slider").oninput = (e)=>{
-  cur = Number(e.target.value);
-  $("#finfo").textContent = `${cur}/${frames-1}`;
-  drawFrame(cur);
-  updateClocks();
-};
-$("#jump").onclick = ()=>{
-  if (lastCrossFrame!=null){
-    cur = Math.min(lastCrossFrame, frames-1);
-    $("#slider").value = cur;
-    drawFrame(cur);
-    updateClocks();
-  }
-};
-
-// Alignment controls (always enabled)
-$("#alignSec").addEventListener("input", (e)=>{
-  const v = Number(e.target.value);
-  alignSec = (isFinite(v) && v > 0) ? v : null;
-  updateEffFpsDisplay();
-  updateClocks();
-  if (playing) startTick();
-});
-$("#align60").addEventListener("click", ()=>{
-  alignSec = 60;
-  $("#alignSec").value = String(alignSec);
-  updateEffFpsDisplay();
-  updateClocks();
-  if (playing) startTick();
-});
-$("#alignReset").addEventListener("click", ()=>{
-  alignSec = null;
-  $("#alignSec").value = "";
-  updateEffFpsDisplay();
-  updateClocks();
-  if (playing) startTick();
-});
-
-$("#file").addEventListener("change", (e)=>{
-  const f = e.target.files[0];
-  if (f) loadJSON(f).then(()=>{
-    drawFrame(0);
-    updateEffFpsDisplay();
-    updateClocks();
+  $("file").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    loadJSON(f);
   });
-});
 
-(async function init(){
-  if (bakeUrl){
-    await loadJSON(bakeUrl);
-    drawFrame(0);
-    updateEffFpsDisplay();
-    updateClocks();
+  // auto-load if ?bake= is present
+  const bake = getQuery("bake");
+  if (bake) {
+    $("url").value = bake;
+    loadJSON(bake);
   }
-})();
-</script>
+  </script>
 </body>
 </html>

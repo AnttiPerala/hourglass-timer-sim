@@ -1,468 +1,385 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8" />
   <title>Baker</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
-      --bg:#fafafa; --fg:#111; --muted:#666; --line:#e5e7eb;
-      --accent:#111; --accent-2:#0ea5e9; --chip:#111; --chip-fg:#fff;
+      --bg:#0b0c10; --panel:#151821; --muted:#8aa; --text:#e6eef7;
+      --accent:#5bd; --accent-2:#2ab; --ok:#2ecc71; --warn:#f39c12; --bad:#e74c3c;
+      --line:#2a2f3a;
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      color: var(--fg); background: var(--bg);
-    }
-    .wrap { max-width: 980px; margin: 24px auto; padding: 0 16px; }
-    h1 { font-size: 28px; margin: 0 0 18px; }
-    a { color: var(--accent-2); text-decoration: none; }
+    html,body { background:var(--bg); color:var(--text); font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; margin:0; }
+    a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
-
-    .card { background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow: 0 1px 2px rgba(0,0,0,.04); padding:18px; margin: 10px 0 18px; }
-    .grid {
-      display:grid;
-      grid-template-columns: repeat(12, minmax(0,1fr));
-      gap:14px 18px;
-    }
-    .col-6 { grid-column: span 6; }
-    .col-4 { grid-column: span 4; }
-    .col-3 { grid-column: span 3; }
-    .col-2 { grid-column: span 2; }
-    .col-12 { grid-column: 1/-1; }
-    @media (max-width: 720px) {
-      .col-6, .col-4, .col-3, .col-2 { grid-column: 1/-1; }
-    }
-
-    label { display:block; font-weight:600; font-size:13px; color:#222; margin-bottom:6px; }
-    .tip { font-weight:400; color:var(--muted); margin-left:6px; cursor:help; }
+    .wrap { max-width: 1080px; margin: 28px auto; padding: 0 18px; }
+    h1 { margin: 0 0 16px; font-size: 28px; }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:14px 18px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+    .lbl { color: var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+    .q { display:inline-block; width:16px; height:16px; border-radius:50%; border:1px solid var(--line); text-align:center; line-height:14px; font-size:11px; color:var(--muted); cursor:help; }
     input[type="text"], input[type="number"], select {
-      width:100%; height:36px; border:1px solid var(--line); border-radius:8px; padding:6px 10px; font:inherit;
-      background:#fff;
+      width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line);
+      background:#0f1118; color:var(--text);
     }
-    input[type="checkbox"] { transform: translateY(2px); }
-    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-
-    .btn {
-      background:#111; color:#fff; border:0; border-radius:10px; padding:8px 14px; font-weight:600; cursor:pointer;
-    }
-    .btn:disabled { opacity:.6; cursor:not-allowed; }
-    .btn.secondary { background:#f3f4f6; color:#111; }
-    .btn.ghost { background:#e5e7eb; color:#111; }
-    .chip { display:inline-block; background:var(--chip); color:var(--chip-fg); padding:2px 8px; border-radius:14px; font-size:12px; }
-
-    .status { display:flex; align-items:center; gap:10px; }
-    progress { width:100%; height:12px; appearance: none; }
-    progress::-webkit-progress-bar { background:#eee; border-radius:6px; }
-    progress::-webkit-progress-value { background:#111; border-radius:6px; }
-    .muted { color: var(--muted); }
-
-    .log {
-      background:#0b0b0b; color:#f3f3f3; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      border-radius:10px; padding:10px; max-height:240px; overflow:auto; border:1px solid #1f2937;
-      white-space:pre-wrap; word-break:break-word;
-    }
-    .log-controls { display:flex; gap:8px; align-items:center; margin-top:8px; }
+    input[type="checkbox"] { transform: translateY(1px); }
+    .row { display:grid; grid-template-columns: repeat(6, 1fr); gap:12px; }
+    .row > div { }
+    .section-title { font-weight:600; margin-bottom:10px; }
+    .btn { background:#151d27; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:8px 12px; cursor:pointer; }
+    .btn:hover { background:#19222f; }
+    .btn.primary { background:var(--accent); color:#03131a; border-color:transparent; font-weight:600; }
+    .btn.small { padding:6px 8px; font-size:12px; }
+    .controls { display:flex; gap:10px; align-items:center; margin-top:10px; }
+    .status { margin-top:16px; }
+    progress { width:100%; height:12px; }
+    .log { margin-top:10px; background:#0a0d14; border:1px solid var(--line); border-radius:8px; padding:8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; overflow:auto; max-height:260px; white-space: pre-wrap; }
+    .log-toolbar { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted); margin:6px 0; }
+    .pill { background:#0e1520; border:1px solid var(--line); padding:4px 8px; border-radius:999px; font-size:12px; color:var(--muted); }
+    .tip { color:var(--muted); font-size:12px; margin-left:10px; }
     .right { margin-left:auto; }
-    .small { font-size:12px; }
-
-    .section-title { font-weight:700; color:#111; margin:6px 0 8px; }
-    .side-link { float:right; font-weight:600; margin-top:4px; }
+    .muted { color: var(--muted); }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1 style="display:flex;align-items:center;gap:12px;">
-      Baker
-      <a class="side-link" href="/public/index.html">Bakes Index</a>
-    </h1>
+    <h1 class="title">Baker <a href="/public/index.html" class="pill">Bakes Index</a></h1>
 
-    <!-- Simulation -->
-    <div class="card">
-      <div class="section-title">Simulation</div>
-      <div class="grid">
-        <div class="col-3">
-          <label>duration (s) <span class="tip" title="How long to simulate before optional flush continuation. Target frames = duration × fps.">?</span></label>
-          <input id="duration" type="number" min="1" step="1" value="120" />
-        </div>
-        <div class="col-3">
-          <label>fps <span class="tip" title="Physics/recording framerate in frames per second.">?</span></label>
-          <input id="fps" type="number" min="1" step="1" value="60" />
-        </div>
-        <div class="col-3">
-          <label>grains <span class="tip" title="Number of circular grains (bodies) seeded in the top bulb.">?</span></label>
-          <input id="grains" type="number" min="1" step="1" value="300" />
-        </div>
-        <div class="col-3">
-          <label>full (0–1) <span class="tip" title="Top-bulb fill ratio (0..1). Currently used to bias placement density.">?</span></label>
-          <input id="full" type="number" step="0.1" value="0.1" />
-        </div>
+    <div class="panel grid">
+      <div class="section-title" style="grid-column: span 12;">Simulation</div>
 
-        <div class="col-3">
-          <label>bulb (px) <span class="tip" title="Half-width of bulbs far from the neck. Larger → rounder/wider bulbs.">?</span></label>
-          <input id="bulb" type="number" step="1" value="220" />
-        </div>
-        <div class="col-3">
-          <label>neck (px) <span class="tip" title="Narrowest width of the neck opening (inner-to-inner). Use ≥ 5× grain radius for smooth flow.">?</span></label>
-          <input id="neck" type="number" step="1" value="35" />
-        </div>
-        <div class="col-3">
-          <label>H (px) <span class="tip" title="Half-height of one bulb (so full glass is ~2×H).">?</span></label>
-          <input id="H" type="number" step="1" value="500" />
-        </div>
-        <div class="col-3">
-          <label>r (grain radius) <span class="tip" title="Visual and physical radius of grains in pixels.">?</span></label>
-          <input id="r" type="number" step="0.5" value="3" />
-        </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">duration (s) <span class="q" title="Total intended bake time in seconds. If noFlush is off, sim may continue until the top bulb empties or flushMaxSec elapses.">?</span></div>
+        <input id="duration" type="number" step="1" value="120">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">fps <span class="q" title="Simulation recording FPS. Engine uses sub-steps automatically at 30 FPS for stability.">?</span></div>
+        <input id="fps" type="number" step="1" value="60">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">grains <span class="q" title="Total number of grains (particles).">?</span></div>
+        <input id="grains" type="number" step="1" value="600">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">full (0–1) <span class="q" title="Initial fill fraction of the top bulb. 1 = as full as seeding allows.">?</span></div>
+        <input id="full" type="number" step="0.05" value="0.9">
+      </div>
 
-        <div class="col-3">
-          <label>bounce (0–1) <span class="tip" title="Grain restitution. Higher = bouncier. Typical 0.05–0.25.">?</span></label>
-          <input id="bounce" type="number" step="0.01" value="0.12" />
-        </div>
-        <div class="col-3">
-          <label>friction (0–1) <span class="tip" title="Surface friction for grains. Lower reduces sticking/arching. Typical 0.01–0.05.">?</span></label>
-          <input id="friction" type="number" step="0.01" value="0.02" />
-        </div>
-        <div class="col-3">
-          <label>k (stiffness-ish) <span class="tip" title="Reserved for future constraints; currently unused.">?</span></label>
-          <input id="k" type="number" step="0.1" value="0.1" />
-        </div>
-        <div class="col-3">
-          <label>tilt (deg) <span class="tip" title="Applies tilt to gravity only (container stays upright visually). Small values (1–3°) help flow.">?</span></label>
-          <input id="tiltDeg" type="number" step="0.1" value="1.5" />
-        </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">bulb (px) <span class="q" title="Half-width of the bulb near the top/bottom. In pixels.">?</span></div>
+        <input id="bulb" type="number" step="1" value="220">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">neck (px) <span class="q" title="Narrowest width at the neck (distance between walls).">?</span></div>
+        <input id="neck" type="number" step="1" value="35">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">H (px) <span class="q" title="Half height of a single bulb (center to top/bottom).">?</span></div>
+        <input id="H" type="number" step="1" value="500">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">r (grain radius) <span class="q" title="Radius of each grain in pixels for the physics simulation.">?</span></div>
+        <input id="r" type="number" step="0.5" value="3">
+      </div>
 
-        <div class="col-3">
-          <label>c1 (curve) <span class="tip" title="Hourglass wall curvature coefficient 1. Adjusts bulge near mid-heights.">?</span></label>
-          <input id="c1" type="number" step="0.1" value="0.2" />
-        </div>
-        <div class="col-3">
-          <label>c2 (curve) <span class="tip" title="Hourglass wall curvature coefficient 2. Adjusts taper near the neck.">?</span></label>
-          <input id="c2" type="number" step="0.1" value="0.5" />
-        </div>
-        <div class="col-3">
-          <label>slat (px) <span class="tip" title="Optional thin bar across the neck (0 = off).">?</span></label>
-          <input id="slat" type="number" step="1" value="0" />
-        </div>
-        <div class="col-3">
-          <label>wall thickness (px) <span class="tip" title="Physical wall thickness. It grows outward only, keeping the inner profile accurate.">?</span></label>
-          <input id="wallThickness" type="number" step="1" value="10" />
-        </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">bounce (0–1) <span class="q" title="Elasticity (restitution). Lower for less jitter; 0.08–0.15 usually works well.">?</span></div>
+        <input id="bounce" type="number" step="0.01" value="0.12">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">friction (0–1) <span class="q" title="Surface friction for grain–wall and grain–grain. 0.02–0.05 is a good range.">?</span></div>
+        <input id="friction" type="number" step="0.01" value="0.02">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">tilt (deg) <span class="q" title="Tilts gravity only (the glass outline stays upright). Small values (1–3°) help avoid perfect jams.">?</span></div>
+        <input id="tiltDeg" type="number" step="0.1" value="1.5">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">slat (px) <span class="q" title="Optional thin bar at the neck. Leave 0 to disable.">?</span></div>
+        <input id="slat" type="number" step="1" value="0">
+      </div>
 
-        <div class="col-3">
-          <label>flushMaxSec <span class="tip" title="After reaching duration, continue until top empties or this many seconds elapse (if noFlush is off).">?</span></label>
-          <input id="flushMaxSec" type="number" step="1" value="15" />
-        </div>
-        <div class="col-3">
-          <label>noFlush <span class="tip" title="Stop exactly at duration (don’t keep simulating until top empties).">?</span></label>
-          <div class="row">
-            <input id="noFlush" type="checkbox" />
-          </div>
-        </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">c1 (curve) <span class="q" title="Curve coefficient 1 for the wall profile. Positive bulges the bulbs.">?</span></div>
+        <input id="c1" type="number" step="0.1" value="0.2">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">c2 (curve) <span class="q" title="Curve coefficient 2 for the wall profile. Adjust together with c1 for the silhouette.">?</span></div>
+        <input id="c2" type="number" step="0.1" value="0.5">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">wall thickness (px) <span class="q" title="Glass wall thickness grown OUTWARD (does not eat into the cavity). Bigger = more robust against tunneling.">?</span></div>
+        <input id="wallThickness" type="number" step="1" value="12">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">noFlush <span class="q" title="If checked, the sim stops exactly at duration, even if the top bulb isn't empty.">?</span></div>
+        <input id="noFlush" type="checkbox">
+      </div>
+
+      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Anti‑clog</div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">unclog assist <span class="q" title="Enables a gentle gravity wobble and occasional micro-pulses around the neck to help grains flow when nearly stalled.">?</span></div>
+        <input id="unclogAssist" type="checkbox" checked>
+      
+      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Wall‑slip assist</div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">wallSlipPx <span class="q" title="Distance from the inner wall to consider a grain 'hugging' the wall. If slow, it will get a tiny inward nudge. Roughly ~0.6×r works well.">?</span></div>
+        <input id="wallSlipPx" type="number" step="0.1" value="0.6">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">wallSlipVel <span class="q" title="Only grains slower than this speed are nudged off the wall.">?</span></div>
+        <input id="wallSlipVel" type="number" step="0.01" value="0.25">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">wallSlipKickF <span class="q" title="Magnitude of the inward nudge force. Increase if beads still camp the wall; decrease if motion looks jittery.">?</span></div>
+        <input id="wallSlipKickF" type="number" step="0.00001" value="0.00012">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">wallSlipKickDownF <span class="q" title="Small downward component of the wall nudge to bias flow toward the neck.">?</span></div>
+        <input id="wallSlipKickDownF" type="number" step="0.00001" value="0.00004">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">wallSlipCooldownMs <span class="q" title="Minimum milliseconds between nudges for the same grain. Avoids jitter.">?</span></div>
+        <input id="wallSlipCooldownMs" type="number" step="10" value="250">
+      </div>
+</div>
+
+      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Sleep / Output</div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">sleepVel (px/s) <span class="q" title="Below this velocity the grain starts accumulating sleep time.">?</span></div>
+        <input id="sleepVel" type="number" step="0.1" value="2">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">sleepMs (ms) <span class="q" title="How long a grain must remain slow before sleep behavior triggers.">?</span></div>
+        <input id="sleepMs" type="number" step="50" value="1500">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">sleepMode <span class="q" title="What to do when a grain falls asleep deep in the lower bulb: • static = convert to immovable blocker (recommended) • sleep = Matter.js sleeping (auto-wakes on impact) • remove = delete from sim.">?</span></div>
+        <select id="sleepMode">
+          <option value="static" selected>static (blocker)</option>
+          <option value="sleep">sleep (auto‑wake)</option>
+          <option value="remove">remove</option>
+        </select>
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">outputMode <span class="q" title="dense = every grain, every frame (large); sparse = only changed grains per frame (small).">?</span></div>
+        <select id="outputMode">
+          <option value="sparse" selected>sparse</option>
+          <option value="dense">dense</option>
+        </select>
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">quantization Q <span class="q" title="How finely coordinates are quantized when writing .bin/.sbin. Higher = finer = larger files.">?</span></div>
+        <input id="Q" type="number" step="1" value="32">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">flushMaxSec <span class="q" title="After duration, continue until top bulb empties or this many seconds elapse (unless noFlush).">?</span></div>
+        <input id="flushMaxSec" type="number" step="1" value="15">
+      </div>
+
+      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Outside culling & stability</div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">outsideKillPad <span class="q" title="Extra margin added to the grain radius when testing if a grain is outside the cavity silhouette. Bigger = cull earlier.">?</span></div>
+        <input id="outsideKillPad" type="number" step="0.1" value="0.5">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">outsideCullFrames <span class="q" title="How many consecutive frames a grain must be outside before it is destroyed. 1 = instant.">?</span></div>
+        <input id="outsideCullFrames" type="number" step="1" value="2">
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="lbl">maxSpeed (px/s) <span class="q" title="Hard speed clamp to prevent tunneling at low FPS. Lower if you still see escapes; 20–30 px/s works well.">?</span></div>
+        <input id="maxSpeed" type="number" step="1" value="24">
       </div>
     </div>
 
-    <!-- Anti-clog (simple master toggle that dials the helper down to zero) -->
-    <div class="card">
-      <div class="section-title">Anti-clog</div>
-      <div class="grid">
-        <div class="col-3">
-          <label>unclog assist <span class="tip" title="Vibration, pulses and invisible sweepers that gently clear end-of-flow jams. Turn off for a purely physical run.">?</span></label>
-          <input id="unclog" type="checkbox" checked />
-        </div>
-      </div>
+    <div class="controls">
+      <button id="btnStart" class="btn primary">Start bake</button>
+      <button id="btnIndex" class="btn">List bakes</button>
+      <button id="btnReset" class="btn">Reset saved settings</button>
+      <span class="tip">Settings auto‑saved</span>
     </div>
 
-    <!-- Sleep / Output -->
-    <div class="card">
-      <div class="section-title">Sleep / Output</div>
-      <div class="grid">
-        <div class="col-3">
-          <label>sleepVel (px/s) <span class="tip" title="Below this speed, a grain starts accumulating sleep time (only deep in bottom bulb).">?</span></label>
-          <input id="sleepVel" type="number" step="0.1" value="2" />
-        </div>
-        <div class="col-3">
-          <label>sleepMs (ms) <span class="tip" title="How long a grain must stay slow before it’s removed/frozen (only far below the neck).">?</span></label>
-          <input id="sleepMs" type="number" step="50" value="1500" />
-        </div>
-        <div class="col-3">
-          <label>outputMode <span class="tip" title="dense = every grain every frame (bin). sparse = only changed grains per frame (sbin) for smaller files.">?</span></label>
-          <select id="outputMode">
-            <option value="sparse">sparse</option>
-            <option value="dense">dense</option>
-          </select>
-        </div>
-        <div class="col-3">
-          <label>quantization Q <span class="tip" title="Units per pixel in binary stream. Higher = finer precision & larger files. Typical 16–64.">?</span></label>
-          <input id="Q" type="number" step="1" value="32" />
-        </div>
+    <div class="status panel">
+      <div id="statusText">Status: Idle</div>
+      <progress id="prog" value="0" max="1"></progress>
+      <div class="log-toolbar">
+        <span id="progText" class="muted">0% — 0/0</span>
+        <span class="right">
+          <button id="logClear" class="btn small">Clear</button>
+          <button id="logCopy" class="btn small">Copy</button>
+          <label class="muted"><input id="logScroll" type="checkbox" checked> autoscroll</label>
+        </span>
       </div>
-    </div>
-
-    <!-- Actions -->
-    <div class="row" style="gap:10px;">
-      <button id="start" class="btn">Start bake</button>
-      <button id="list" class="btn secondary">List bakes</button>
-      <button id="resetSaved" class="btn ghost">Reset saved settings</button>
-      <span class="muted small">Settings auto-saved</span>
-    </div>
-
-    <!-- Status -->
-    <div class="card">
-      <div class="section-title">Status: <span id="statusText">Idle</span></div>
-      <div class="row" style="gap:8px;margin-top:6px;">
-        <progress id="progressBar" value="0" max="100"></progress>
-        <span id="progressInfo" class="muted small">0% — 0/0</span>
-      </div>
-      <div class="row log-controls">
-        <button id="clearLog" class="btn ghost">Clear</button>
-        <button id="copyLog" class="btn ghost">Copy</button>
-        <label class="small right"><input id="autoscroll" type="checkbox" checked /> autoscroll</label>
-      </div>
-      <div id="log" class="log" aria-live="polite"></div>
-
-      <div id="doneLinks" class="row" style="gap:10px; margin-top:10px; display:none;">
-        <a id="openJson" class="btn secondary" href="#" target="_blank" rel="noopener">Open JSON</a>
-        <a id="openPlayer" class="btn" href="#" target="_blank" rel="noopener">Open in Player</a>
-      </div>
+      <div id="log" class="log"></div>
     </div>
   </div>
 
-  <script>
-  (function () {
-    const $ = (id) => document.getElementById(id);
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const fields = [
+    "duration","fps","grains","full","bulb","neck","H","r","bounce","friction","tiltDeg","slat",
+    "c1","c2","wallThickness","noFlush",
+    "sleepVel","sleepMs","sleepMode","outputMode","Q","flushMaxSec",
+    "outsideKillPad","outsideCullFrames","maxSpeed","unclogAssist","wallSlipPx","wallSlipVel","wallSlipKickF","wallSlipKickDownF","wallSlipCooldownMs"
+  ];
+  const KEY = "baker.settings.v6";
 
-    const FIELDS = [
-      "duration","fps","grains","full","bulb","neck","H","r","bounce","friction","k","tiltDeg",
-      "c1","c2","slat","wallThickness","flushMaxSec","noFlush",
-      "sleepVel","sleepMs","outputMode","Q","unclog"
-    ];
-    const KEY = "bakerSettings.v3";
-
-    // ---------- load/save settings ----------
-    function readSettingsFromUI() {
-      const obj = {};
-      for (const k of FIELDS) {
-        const el = $(k);
-        if (!el) continue;
-        if (el.type === "checkbox") obj[k] = el.checked;
-        else if (el.tagName === "SELECT") obj[k] = el.value;
-        else obj[k] = el.value;
-      }
-      return obj;
-    }
-    function applySettingsToUI(obj) {
-      if (!obj) return;
-      for (const k of FIELDS) {
-        const el = $(k);
-        if (!el || !(k in obj)) continue;
-        if (el.type === "checkbox") el.checked = !!obj[k];
-        else if (el.tagName === "SELECT") el.value = String(obj[k]);
-        else el.value = String(obj[k]);
-      }
-    }
-    function saveSettings() {
-      try { localStorage.setItem(KEY, JSON.stringify(readSettingsFromUI())); } catch {}
-    }
-    function loadSettings() {
-      try {
-        const raw = localStorage.getItem(KEY);
-        if (raw) { const obj = JSON.parse(raw); applySettingsToUI(obj); }
-      } catch {}
-    }
-    loadSettings();
-    for (const k of FIELDS) { const el = $(k); if (el) el.addEventListener("change", saveSettings); }
-
-    $("resetSaved").addEventListener("click", () => {
-      localStorage.removeItem(KEY);
-      location.reload();
+  function loadSettings(){
+    let s = {};
+    try { s = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch {}
+    fields.forEach(k => {
+      const el = $(k);
+      if (!el) return;
+      const v = s[k];
+      if (v === undefined) return;
+      if (el.type === "checkbox") el.checked = !!v;
+      else el.value = v;
     });
-
-    $("list").addEventListener("click", () => location.href = "/public/index.html");
-
-    // ---------- logging ----------
-    const logEl = $("log");
-    const maxLines = 500;
-    function addLog(kind, msg) {
-      const now = new Date().toLocaleTimeString();
-      const line = document.createElement("div");
-      line.textContent = `[${now}]${kind ? " ["+kind+"]" : ""} ${msg}`;
-      logEl.appendChild(line);
-      while (logEl.children.length > maxLines) logEl.removeChild(logEl.firstChild);
-      const auto = $("autoscroll");
-      if (!auto || auto.checked) logEl.scrollTop = logEl.scrollHeight;
-    }
-    $("clearLog").addEventListener("click", () => { logEl.innerHTML = ""; });
-    $("copyLog").addEventListener("click", async () => {
-      const text = Array.from(logEl.childNodes).map(n => n.textContent).join("\n");
-      try { await navigator.clipboard.writeText(text); addLog("info","copied"); } catch { addLog("err","copy failed"); }
+  }
+  function saveSettings(){
+    const s = {};
+    fields.forEach(k => {
+      const el = $(k);
+      if (!el) return;
+      s[k] = (el.type === "checkbox") ? el.checked : el.value;
     });
+    localStorage.setItem(KEY, JSON.stringify(s));
+  }
+  function toNumber(v, fallback) {
+    const n = Number(v);
+    return isFinite(n) ? n : fallback;
+  }
+  function logLine(kind, msg){
+    const log = $("log");
+    const time = new Date().toLocaleTimeString();
+    const line = `[${time}] ${kind ? "["+kind+"] " : ""}${msg}\n`;
+    log.textContent += line;
+    const doScroll = $("logScroll").checked;
+    if (doScroll) log.scrollTop = log.scrollHeight;
+  }
 
-    // ---------- build payload ----------
-    function toNum(v, def) { const n = Number(v); return Number.isFinite(n) ? n : def; }
-    function buildPayload() {
-      const s = readSettingsFromUI();
-      const p = {
-        duration: toNum(s.duration, 120),
-        fps: toNum(s.fps, 60),
-        grains: toNum(s.grains, 300),
-        full: toNum(s.full, 0.1),
-        bulb: toNum(s.bulb, 220),
-        neck: toNum(s.neck, 35),
-        H: toNum(s.H, 500),
-        r: toNum(s.r, 3),
-        bounce: toNum(s.bounce, 0.12),
-        friction: toNum(s.friction, 0.02),
-        k: toNum(s.k, 0.1),
-        tiltDeg: toNum(s.tiltDeg, 1.5),
-        c1: toNum(s.c1, 0.2),
-        c2: toNum(s.c2, 0.5),
-        slat: toNum(s.slat, 0),
-        wallThickness: toNum(s.wallThickness, 10),
-        flushMaxSec: toNum(s.flushMaxSec, 15),
-        noFlush: !!s.noFlush,
-        sleepVel: toNum(s.sleepVel, 2),
-        sleepMs: toNum(s.sleepMs, 1500),
-        outputMode: s.outputMode || "sparse",
-        Q: toNum(s.Q, 32)
-      };
+  function startBake(){
+    saveSettings();
+    const body = {
+      duration: toNumber($("duration").value,120),
+      fps: toNumber($("fps").value,60),
+      grains: toNumber($("grains").value,500),
+      full: toNumber($("full").value,1),
+      bulb: toNumber($("bulb").value,220),
+      neck: toNumber($("neck").value,35),
+      H: toNumber($("H").value,500),
+      r: toNumber($("r").value,3),
+      bounce: toNumber($("bounce").value,0.12),
+      friction: toNumber($("friction").value,0.02),
+      tiltDeg: toNumber($("tiltDeg").value,1.5),
+      slat: toNumber($("slat").value,0),
+      c1: toNumber($("c1").value,0.2),
+      c2: toNumber($("c2").value,0.5),
+      wallThickness: toNumber($("wallThickness").value,12),
+      noFlush: $("noFlush").checked,
+      sleepVel: toNumber($("sleepVel").value,2),
+      sleepMs: toNumber($("sleepMs").value,1500),
+      sleepMode: $("sleepMode").value,
+      outputMode: $("outputMode").value,
+      Q: toNumber($("Q").value,32),
+      flushMaxSec: toNumber($("flushMaxSec").value,15),
+      outsideKillPad: toNumber($("outsideKillPad").value,0.5),
+      outsideCullFrames: toNumber($("outsideCullFrames").value,2),
+      maxSpeed: toNumber($("maxSpeed").value,24),
+      unclogAssist: $("unclogAssist").checked,
+      wallSlipPx: toNumber($("wallSlipPx").value,0.6),
+      wallSlipVel: toNumber($("wallSlipVel").value,0.25),
+      wallSlipKickF: toNumber($("wallSlipKickF").value,0.00012),
+      wallSlipKickDownF: toNumber($("wallSlipKickDownF").value,0.00004),
+      wallSlipCooldownMs: toNumber($("wallSlipCooldownMs").value,250)
+    };
 
-      // If unclog assist OFF → dial helpers to zero via flags the worker understands
-      if (!s.unclog) {
-        Object.assign(p, {
-          vibeAmpDeg: 0,
-          antiClogPulseEvery: 9999,
-          antiClogPeriod: 9999,
-          rescueTopCount: 0,
-          flusherCount: 0,
-          noFlushers: true
-        });
-      }
-      return p;
-    }
+    $("statusText").textContent = "Status: Baking...";
+    $("prog").value = 0; $("prog").max = 1;
+    $("progText").textContent = "0% — 0/0";
+    const log = $("log"); log.textContent = "";
+    logLine("", "connected");
 
-    // ---------- SSE handling, robust target computation ----------
-    let es = null;
-    let currentFrame = 0;
-    let expectedFrames = 0; // meta.duration * meta.fps
-    let targetFrames = 0;   // best-known target
-    let doneFrames = 0;
-    let lastId = null;
-
-    function setStatus(s) { $("statusText").textContent = s; }
-    function fmt(n) { return (n || 0).toLocaleString(); }
-    function updateProgressUI() {
-      const bar = $("progressBar");
-      const info = $("progressInfo");
-      const t = targetFrames || expectedFrames || doneFrames || 0;
-      const f = currentFrame || 0;
-      const pct = t > 0 ? Math.min(100, Math.floor((f / t) * 100)) : 0;
-      bar.max = Math.max(1, t);
-      bar.value = Math.min(bar.max, f);
-      info.textContent = `${pct}% — ${fmt(f)}/${fmt(t)}`;
-    }
-
-    function attachBakeStream(id) {
-      if (es) { try { es.close(); } catch {} es = null; }
-      lastId = id;
-      currentFrame = 0; expectedFrames = 0; targetFrames = 0; doneFrames = 0;
-      setStatus("Baking…");
-      updateProgressUI();
-      $("doneLinks").style.display = "none";
-
-      es = new EventSource(`/api/stream/${encodeURIComponent(id)}`);
-
-      es.addEventListener("hello", () => addLog("", "connected"));
-
-      es.addEventListener("meta", (e) => {
-        try {
-          const m = JSON.parse(e.data);
-          const est = Math.round((Number(m.fps) || 0) * (Number(m.duration) || 0));
-          if (est > 0) expectedFrames = est;
-          if (targetFrames <= 0 && expectedFrames > 0) targetFrames = expectedFrames;
-          updateProgressUI();
-          addLog("meta", e.data);
-        } catch {}
+    fetch("/api/bake", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(body)
+    }).then(r => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(({id}) => {
+      const es = new EventSource(`/api/stream/${id}`);
+      let target = 0;
+      es.addEventListener("hello", e => {
+        const d = JSON.parse(e.data);
+        logLine("meta", JSON.stringify({event:"hello", id:d.id}));
       });
-
-      es.addEventListener("progress", (e) => {
-        try {
-          const p = JSON.parse(e.data);
-          currentFrame = Number(p.frame) || currentFrame;
-          const t = Number(p.target) || 0;
-          if (t > 0) targetFrames = t;
-          if (targetFrames <= 0 && expectedFrames > 0) targetFrames = expectedFrames;
-          if (targetFrames <= 0 && doneFrames > 0) targetFrames = doneFrames;
-          updateProgressUI();
-        } catch {}
+      es.addEventListener("meta", e => {
+        const d = JSON.parse(e.data);
+        logLine("meta", e.data);
       });
-
-      es.addEventListener("log", (e) => {
-        try { const j = JSON.parse(e.data); addLog(j.level || "log", j.msg || ""); }
-        catch { addLog("log", e.data || ""); }
+      es.addEventListener("log", e => {
+        const d = JSON.parse(e.data);
+        logLine(d.level || "log", d.msg || "");
       });
-
-      es.addEventListener("done", (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          doneFrames = Number(d.frames) || doneFrames;
-          if (targetFrames <= 0) targetFrames = doneFrames;
-          currentFrame = Math.max(currentFrame, doneFrames);
-          updateProgressUI();
-          setStatus("Done");
-
-          const jsonUrl = d.file.startsWith("bakes/") ? ("/" + d.file) : d.file;
-          $("openJson").href = jsonUrl;
-          $("openPlayer").href = `/public/player.html?bake=${encodeURIComponent(jsonUrl)}`;
-          $("doneLinks").style.display = "flex";
-
-          addLog("done", `file=${d.file}, frames=${d.frames}, fps=${d.fps}, lastCrossFrame=${d.lastCrossFrame}`);
-        } catch {}
+      es.addEventListener("progress", e => {
+        const d = JSON.parse(e.data);
+        target = d.target || target;
+        $("prog").max = target || 1;
+        $("prog").value = d.frame || 0;
+        const pct = target ? Math.floor((d.frame/target)*100) : 0;
+        $("progText").textContent = `${pct}% — ${d.frame}/${target || 0}`;
       });
-
-      es.addEventListener("exit", (e) => {
-        try { const j = JSON.parse(e.data); addLog("exit", `code=${j.code} signal=${j.signal}`); } catch {}
-        es.close();
+      es.addEventListener("done", e => {
+        const d = JSON.parse(e.data);
+        $("statusText").innerHTML = `Status: <span class="ok">Done</span>`;
+        $("prog").max = d.frames || $("prog").max;
+        $("prog").value = d.frames || $("prog").value;
+        $("progText").textContent = `100% — ${d.frames}/${d.frames}`;
+        const abs = (p) => new URL(p, location.origin).toString();
+        const openJson = abs("/" + d.file.replace(/^\/?/, ""));
+        const player = `/public/player.html?bake=${encodeURIComponent(openJson)}`;
+        logLine("done", `file=${d.file}`);
+        const linkBar = document.createElement("div");
+        linkBar.style.marginTop = "8px";
+        linkBar.innerHTML = `<a class="pill" href="${openJson}" target="_blank">Open JSON</a> &nbsp; <a class="pill" href="${player}" target="_blank">Open in Player</a>`;
+        $("statusText").appendChild(linkBar);
       });
-
-      es.onerror = () => {
-        addLog("es", `error (readyState=${es.readyState})`);
-        setStatus("Stream error");
-      };
-    }
-
-    // ---------- wire up Start ----------
-    $("start").addEventListener("click", async () => {
-      const payload = buildPayload();
-      saveSettings();
-      addLog("info", "POST /api/bake …");
-      setStatus("Starting…");
-      $("doneLinks").style.display = "none";
-
-      try {
-        const res = await fetch("/api/bake", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) {
-          addLog("err", `POST /api/bake ${res.status}`);
-          setStatus(`Error ${res.status}`);
-          return;
+      es.addEventListener("exit", e => {
+        const d = JSON.parse(e.data);
+        if (d.code !== 0) {
+          $("statusText").innerHTML = `Status: <span class="bad">Exited</span> (code=${d.code}, signal=${d.signal})`;
         }
-        const { id } = await res.json();
-        addLog("info", `id=${id}`);
-        attachBakeStream(id);
-      } catch (err) {
-        addLog("err", String(err));
-        setStatus("Network error");
-      }
+      });
+      es.onerror = (err) => {
+        logLine("es", "EventSource error; readyState=" + es.readyState);
+      };
+    }).catch(err => {
+      $("statusText").innerHTML = `Status: <span class="bad">Error</span>`;
+      logLine("error", String(err));
     });
+  }
 
-    // Prevent accidental hanging SSE on page load
-    setStatus("Idle");
-  })();
-  </script>
+  $("btnStart").addEventListener("click", startBake);
+  $("btnIndex").addEventListener("click", () => window.open("/public/index.html", "_blank"));
+  $("btnReset").addEventListener("click", () => { localStorage.removeItem(KEY); loadSettings(); });
+  $("logClear").addEventListener("click", () => { $("log").textContent = ""; });
+  $("logCopy").addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("log").textContent);
+  });
+
+  // autosave
+  document.addEventListener("change", (e) => {
+    if (fields.includes(e.target.id)) saveSettings();
+  });
+
+  loadSettings();
+})();
+</script>
 </body>
 </html>
