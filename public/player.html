@@ -13,7 +13,8 @@
     header .sub { color:var(--sub); font-size:12px; }
     main { padding:10px 12px; display:grid; grid-template-columns: 1fr; gap:10px; }
     #wrap { display:flex; justify-content:center; }
-    canvas { background:#06080b; border:1px solid #1d2330; border-radius:10px; width: min(1200px, 96vw); height: calc(min(1200px,96vw)*1.2); max-height: 72vh; }
+    /* Canvas scales to layout; internal resolution adjusts via ResizeObserver */
+    canvas { background:#06080b; border:1px solid #1d2330; border-radius:10px; width: min(1200px, 96vw); height: calc(min(1200px,96vw)*1.2); max-height: 88vh; }
     .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .chip { background:#121a25; border:1px solid #223042; padding:4px 8px; border-radius:8px; font-size:12px; }
     input[type=range]{ width:280px; }
@@ -54,6 +55,16 @@
     </div>
 
     <div class="row">
+      <span>Zoom:</span>
+      <input id="zoom" type="range" min="50" max="200" step="5" value="100" title="Zoom the view (50–200%)">
+      <span id="zoomLbl" class="chip">100%</span>
+      <span style="width:12px"></span>
+      <span>Pan&nbsp;Y:</span>
+      <input id="panY" type="range" min="-100" max="100" step="1" value="0" title="Vertical pan in % of H (negative moves up, positive down)">
+      <span id="panYLbl" class="chip">0%</span>
+    </div>
+
+    <div class="row">
       <span>Time left (to last-cross):</span> <span id="leftCross" class="chip">—</span>
       <span style="width:10px"></span>
       <span>Time left (to end):</span> <span id="leftEnd" class="chip">—</span>
@@ -70,25 +81,33 @@
   const alignSecInp = $('#alignSec'), resetAlignBtn = $('#resetAlign'), alignInfo = $('#alignInfo');
   const metaNote = $('#metaNote');
   const leftCross = $('#leftCross'), leftEnd = $('#leftEnd'), warn = $('#warn');
+  const zoomCtl = $('#zoom'), zoomLbl = $('#zoomLbl');
+  const panYCtl = $('#panY'), panYLbl = $('#panYLbl');
 
   let meta = null, frames = 0, grains = 0, baseFPS = 60, lastCrossFrame = null, Q = 32;
   let mode = "sparse"; // or dense
   let reader = null;   // {getFrame(i)->positions, seek(i)->void}
-  let alive = [];      // used by sparse for death marker
+  let alive = [];
   let anim = null, cur = 0, effectiveFPS = 60, lastTick = 0;
 
   const SENT = 65535; // death sentinel from baker
+  let viewZoom = 1.0; // 1.0 = fit scale, multiplied by this factor
+  let panYFrac = 0.0; // fraction of H ( -1..+1 ), positive pans down
 
   // util
   const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
-  const worldToScreen = (x,y) => {
-    // fit to canvas with margins
+  function fitScale() {
     const W = (meta.bulb*2 + 80), H2 = (meta.H*2 + 80);
     const sx = cv.width  / W;
     const sy = cv.height / H2;
-    const s = Math.min(sx, sy);
+    return Math.min(sx, sy);
+  }
+  const worldToScreen = (x,y) => {
+    const s = fitScale() * viewZoom;
     const cx = cv.width/2, cy = cv.height/2;
-    return [cx + x * s, cy + y * s, s];
+    // pan in world units (px): fraction of H
+    const py = (panYFrac * meta.H);
+    return [cx + x * s, cy + (y + py) * s, s];
   };
 
   /* -------------------- loader -------------------- */
@@ -97,31 +116,23 @@
     if (!res.ok) throw new Error('Failed to fetch JSON: ' + res.status);
     return await res.json();
   }
-
   function parseQuery() {
     const u = new URL(location.href);
     return u.searchParams.get('bake');
   }
-
   fileInp.addEventListener('change', async () => {
     const f = fileInp.files[0]; if (!f) return;
     const j = JSON.parse(await f.text());
-    startWithJSON(j, null); // no remote path
+    startWithJSON(j, null);
   });
-
   (async function initFromQuery(){
     const q = parseQuery();
     if (!q) return;
-    try {
-      const j = await loadJSON(q);
-      startWithJSON(j, q);
-    } catch (e) {
-      warn.textContent = 'Failed to load: ' + e.message;
-    }
+    try { startWithJSON(await loadJSON(q), q); }
+    catch (e) { warn.textContent = 'Failed to load: ' + e.message; }
   })();
 
   function startWithJSON(json, baseHref) {
-    // pick source
     meta = json.meta || {};
     frames = json.frames || 0;
     baseFPS = json.fps || meta.fps || 60;
@@ -155,7 +166,6 @@
       loadSparse(abs);
     }
   }
-
   function fail(msg){ warn.textContent = msg; }
 
   /* -------------------- dense reader -------------------- */
@@ -163,26 +173,18 @@
     try {
       const buf = await (await fetch(url)).arrayBuffer();
       const u16 = new Uint16Array(buf);
-      if (u16.length !== grains*2*frames) {
-        // legacy base64? (not handled here)
-      }
       reader = {
         getFrame(i) {
           const arr = new Array(grains);
           let off = i * grains * 2;
-          for (let g=0; g<grains; g++, off+=2) {
-            const qx = u16[off], qy = u16[off+1];
-            arr[g] = [qx, qy];
-          }
+          for (let g=0; g<grains; g++, off+=2) arr[g] = [u16[off], u16[off+1]];
           return arr;
         },
         seek(i){ /* nothing */ }
       };
       cur = 0;
       drawFrame(cur);
-    } catch (e) {
-      fail('dense load error: ' + e.message);
-    }
+    } catch (e) { fail('dense load error: ' + e.message); }
   }
 
   /* -------------------- sparse reader -------------------- */
@@ -190,7 +192,6 @@
     try {
       const buf = await (await fetch(url)).arrayBuffer();
       const dv = new DataView(buf);
-      // header: "HGSB"(0..3), u16 Q (4..5), u32 grains(6..9), u32 frames(10..13)
       if (String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3))!=='HGSB') throw new Error('bad magic');
       const qh = dv.getUint16(4,true);
       const g = dv.getUint32(6,true);
@@ -200,17 +201,15 @@
       if (f!==frames) frames = f;
       slider.max = Math.max(0, frames-1); finfo.textContent = `0/${frames}`;
 
-      // build frame offset table
       const offs = new Uint32Array(frames);
       let p = 14;
       for (let i=0;i<frames;i++){
         offs[i] = p;
         const count = dv.getUint16(p, true); p+=2;
         for (let c=0;c<count;c++){
-          // varint index
           let shift=0, idx=0, b;
           do { b=dv.getUint8(p++); idx |= (b&0x7f)<<shift; shift+=7; } while (b>=0x80);
-          p += 4; // qx,qy u16 each
+          p += 4;
         }
       }
 
@@ -222,36 +221,28 @@
         let p = offs[i];
         const count = dv.getUint16(p, true); p+=2;
         for (let c=0;c<count;c++){
-          // varint index
           let shift=0, idx=0, b;
           do { b=dv.getUint8(p++); idx |= (b&0x7f)<<shift; shift+=7; } while (b>=0x80);
           const qx = dv.getUint16(p, true), qy = dv.getUint16(p+2, true); p+=4;
           if (qx===SENT && qy===SENT) { alive[idx]=false; continue; }
           alive[idx]=true;
-          const off = idx*2;
-          lastQ[off]=qx; lastQ[off+1]=qy;
+          const off = idx*2; lastQ[off]=qx; lastQ[off+1]=qy;
         }
         return lastQ;
       };
 
-      // snapshots every N frames for quick seeking
-      const SNAP = Math.max(1, Math.floor(240*60/baseFPS)); // approx every 240@60fps
-      const snaps = new Map(); // frame -> {lastQ:Uint16Array, alive:Uint8Array}
+      const SNAP = Math.max(1, Math.floor(240*60/baseFPS));
+      const snaps = new Map();
       const makeSnap = (i, LQ) => snaps.set(i, { lastQ: new Uint16Array(LQ), alive: Uint8Array.from(alive, v=>v?1:0) });
 
       reader = {
         seek(target){
           target = clamp(target, 0, frames-1);
-          // find nearest snapshot <= target
           let start = 0;
           for (const k of snaps.keys()) if (k<=target && k>start) start=k;
-          // if moving backwards a lot and no snap, rebuild from 0
-          if (!snaps.has(start) && target>1000) { start=0; }
           let LQ;
           if (start===0 && !snaps.has(0)) {
-            // reset
-            LQ = new Uint16Array(grains*2); LQ.fill(0);
-            alive.fill(true);
+            LQ = new Uint16Array(grains*2); LQ.fill(0); alive.fill(true);
             for (let i=0;i<=target;i++){ LQ = applyFrame(i); if (i%SNAP===0) makeSnap(i, LQ); }
           } else {
             const s = snaps.get(start);
@@ -261,16 +252,12 @@
           }
           return LQ;
         },
-        getFrame(i){
-          return this.seek(i);
-        }
+        getFrame(i){ return this.seek(i); }
       };
 
       cur = 0;
       drawFrame(cur);
-    } catch (e) {
-      fail('sparse load error: ' + e.message);
-    }
+    } catch (e) { fail('sparse load error: ' + e.message); }
   }
 
   /* -------------------- drawing -------------------- */
@@ -283,7 +270,6 @@
     s = Math.max(0, Math.min(1, s));
     return (neck/2) + (bulb - neck/2) * s;
   }
-
   function drawWalls() {
     const H = meta.H;
     ctx.strokeStyle = "#bfc7d8";
@@ -303,7 +289,6 @@
     ctx.closePath();
     ctx.stroke();
   }
-
   function drawFrame(i) {
     if (!reader) return;
     const u16 = reader.getFrame(i);
@@ -316,17 +301,16 @@
     for (let g=0; g<grains; g++){
       if (mode==='sparse' && !alive[g]) continue;
       const qx = u16[g*2], qy = u16[g*2+1];
-      if (qx===0 && qy===0) continue; // not yet written
-      if (qx===SENT && qy===SENT) continue; // death marker
+      if (qx===0 && qy===0) continue;
+      if (qx===SENT && qy===SENT) continue;
       const x = (qx / Q) - (meta.bulb + 5);
       const y = (qy / Q) - (meta.H + 5);
-      const [sx,sy,s] = worldToScreen(x,y);
+      const [sx,sy] = worldToScreen(x,y);
       ctx.moveTo(sx+rad, sy);
       ctx.arc(sx, sy, rad, 0, Math.PI*2);
     }
     ctx.fill();
 
-    // HUD update
     slider.value = i;
     finfo.textContent = `${i}/${frames}`;
     updateClocks(i);
@@ -350,16 +334,14 @@
     lastTick = ts;
     anim = requestAnimationFrame(tick);
   }
-
   function play() { stop(); lastTick = 0; anim = requestAnimationFrame(tick); }
   function stop() { if (anim) cancelAnimationFrame(anim); anim = null; }
-
   playBtn.onclick = () => play();
   pauseBtn.onclick = () => stop();
   slider.oninput = () => { stop(); reader.seek(Number(slider.value)); cur = Number(slider.value); drawFrame(cur); };
   jumpBtn.onclick = () => { if (lastCrossFrame!=null){ stop(); cur = lastCrossFrame; reader.seek(cur); drawFrame(cur);} };
 
-  // alignment: scale playback so lastCross lands at alignSec seconds
+  // alignment -> effective FPS
   let alignSec = null;
   alignSecInp.addEventListener('input', () => {
     const v = Number(alignSecInp.value);
@@ -367,7 +349,6 @@
     computeEffectiveFPS();
   });
   resetAlignBtn.onclick = () => { alignSec = null; alignSecInp.value = ""; computeEffectiveFPS(); };
-
   function computeEffectiveFPS() {
     if (alignSec!=null && lastCrossFrame!=null && lastCrossFrame>0) {
       effectiveFPS = baseFPS * (lastCrossFrame/ baseFPS) / alignSec;
@@ -378,7 +359,6 @@
     }
     fpsEl.textContent = effectiveFPS.toFixed(2);
   }
-
   function updateClocks(i) {
     if (lastCrossFrame!=null) {
       const secsLeft = Math.max(0, (lastCrossFrame - i) / effectiveFPS);
@@ -387,8 +367,24 @@
       leftCross.textContent = '—';
     }
     const endLeft = Math.max(0, (frames - 1 - i) / effectiveFPS);
-    leftEnd.textContent = new Date(endLeft * 1000).toISOString().substr(14, 5); // mm:ss
+    leftEnd.textContent = new Date(endLeft * 1000).toISOString().substr(14, 5);
   }
+
+  // Zoom & Pan controls
+  function applyZoomUI() {
+    const z = Number(zoomCtl.value) || 100;
+    viewZoom = z / 100;
+    zoomLbl.textContent = `${z}%`;
+    drawFrame(cur||0);
+  }
+  function applyPanYUI() {
+    const p = Number(panYCtl.value) || 0; // -100..+100 (% of H)
+    panYFrac = p / 100;
+    panYLbl.textContent = `${p}%`;
+    drawFrame(cur||0);
+  }
+  zoomCtl.addEventListener('input', applyZoomUI);
+  panYCtl.addEventListener('input', applyPanYUI);
 
   // resize canvas to devicePixelRatio
   function resizeCanvas() {
@@ -400,6 +396,10 @@
     drawFrame(cur||0);
   }
   new ResizeObserver(resizeCanvas).observe(cv);
+
+  // init labels once
+  applyZoomUI();
+  applyPanYUI();
   </script>
 </body>
 </html>
