@@ -91,17 +91,20 @@
   let meta = null, frames = 0, grains = 0, baseFPS = 60, lastCrossFrame = null, Q = 32;
   let mode = "sparse"; // or dense
   let reader = null;
-  let alive = [];
-  let anim = null, cur = 0, effectiveFPS = 60, lastTick = 0, frameAcc = 0;
-
-  const SENT = 65535; // death sentinel from baker
-  let viewZoom = 1.0;     // multiplies fitted scale
-  let panYFrac = 0.0;     // fraction of H (-1..+1), positive pans down
+  let anim = null, effFPS = 60, lastTick = 0;
+  let fidx = 0;                  // fractional frame index
+  let viewZoom = 1.0;            // multiplies fitted scale
+  let panYFrac = 0.0;            // fraction of H (-1..+1), positive pans down
   let grainColor = '#f1f4ff';
 
+  // Interp pair cache
+  let pairCache = { fi:-1, a:null, b:null, aliveA:null, aliveB:null };
+
+  const SENT = 65535;
   const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
+
   function fitScale() {
-    const W = (meta.bulb*2 + 80), H2 = (meta.H*2 + 80);
+    const W = ((meta?.bulb??220)*2 + 80), H2 = ((meta?.H??500)*2 + 80);
     const sx = cv.width  / W;
     const sy = cv.height / H2;
     return Math.min(sx, sy);
@@ -109,19 +112,51 @@
   const worldToScreen = (x,y) => {
     const s = fitScale() * viewZoom;
     const cx = cv.width/2, cy = cv.height/2;
-    const py = (panYFrac * meta.H);
+    const py = (panYFrac * (meta?.H??500));
     return [cx + x * s, cy + (y + py) * s, s];
   };
 
+  /* ---------- wall outline (used only for drawing) ---------- */
+  function xHalf(y) {
+    const H = meta?.H ?? 500;
+    const neck = meta?.neck ?? 12;
+    const bulb = meta?.bulb ?? 220;
+    const c1 = Number(meta?.c1 ?? 0);
+    const c2 = Number(meta?.c2 ?? 0);
+    const ay = Math.abs(y);
+    const t = Math.min(1, ay / H);
+    const bump = t * (1 - t);
+    let s = t + c1*bump + c2*(2*bump*(t-0.5));
+    s = Math.max(0, Math.min(1, s));
+    return (neck/2) + (bulb - neck/2) * s;
+  }
+  function drawWalls() {
+    const H = meta?.H ?? 500;
+    ctx.strokeStyle = "#bfc7d8";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const steps = 220;
+    for (let i=0;i<=steps;i++){
+      const y = -H + (2*H)*i/steps;
+      const [xl,yl] = worldToScreen(-xHalf(y), y);
+      if (i===0) ctx.moveTo(xl,yl); else ctx.lineTo(xl,yl);
+    }
+    for (let i=steps;i>=0;i--){
+      const y = -H + (2*H)*i/steps;
+      const [xr,yr] = worldToScreen(+xHalf(y), y);
+      ctx.lineTo(xr,yr);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  // ---------------- Data loading ----------------
   async function loadJSON(url) {
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch JSON: ' + res.status);
     return await res.json();
   }
-  function parseQuery() {
-    const u = new URL(location.href);
-    return u.searchParams.get('bake');
-  }
+  function parseQuery() { return new URL(location.href).searchParams.get('bake'); }
   fileInp.addEventListener('change', async () => {
     const f = fileInp.files[0]; if (!f) return;
     const j = JSON.parse(await f.text());
@@ -143,6 +178,7 @@
     lastCrossFrame = json.lastCrossFrame ?? null;
     mode = (meta.mode || (json.bin ? 'dense':'sparse')) || 'sparse';
 
+    // header note
     metaNote.textContent = (lastCrossFrame==null ? 'lastCross not available.' : '') +
       ` Tilt (gravity only): ${Number(meta.tiltDeg||0).toFixed(2)}°`;
 
@@ -153,8 +189,6 @@
     leftCross.textContent = '—';
     leftEnd.textContent = '—';
     warn.textContent = '';
-
-    alive = new Array(grains).fill(true);
 
     if (mode === 'dense') {
       const url = json.bin || json.u16 || json.data;
@@ -174,16 +208,16 @@
     try {
       const buf = await (await fetch(url)).arrayBuffer();
       const u16 = new Uint16Array(buf);
+      const stride = grains*2;
+      const aliveOnes = new Uint8Array(grains); aliveOnes.fill(1);
       reader = {
-        getFrame(i) {
-          const arr = new Array(grains);
-          let off = i * grains * 2;
-          for (let g=0; g<grains; g++, off+=2) arr[g] = [u16[off], u16[off+1]];
-          return arr;
-        },
-        seek(i){ /* noop */ }
+        copyFrame(i){
+          i = clamp(i,0,frames-1);
+          const off = i*stride;
+          return { q: u16.subarray(off, off+stride), alive: aliveOnes };
+        }
       };
-      cur = 0; drawFrame(cur);
+      fidx = 0; pairCache.fi = -1; drawInterp(fidx);
     } catch (e) { fail('dense load error: ' + e.message); }
   }
 
@@ -200,6 +234,7 @@
       if (f!==frames) frames = f;
       slider.max = Math.max(0, frames-1); finfo.textContent = `0/${frames}`;
 
+      // Build fast offsets
       const offs = new Uint32Array(frames);
       let p = 14;
       for (let i=0;i<frames;i++){
@@ -212,9 +247,8 @@
         }
       }
 
-      const lastQ = new Uint16Array(grains*2);
-      lastQ.fill(0);
-      alive = new Array(grains).fill(true);
+      const lastQ = new Uint16Array(grains*2); lastQ.fill(0);
+      let alive = new Array(grains).fill(true);
 
       const applyFrame = (i)=>{
         let p = offs[i];
@@ -232,188 +266,156 @@
 
       const SNAP = Math.max(1, Math.floor(240*60/baseFPS));
       const snaps = new Map();
-      const makeSnap = (i, LQ) => snaps.set(i, { lastQ: new Uint16Array(LQ), alive: Uint8Array.from(alive, v=>v?1:0) });
+      const makeSnap = (i) => snaps.set(i, { lastQ: new Uint16Array(lastQ), alive: Uint8Array.from(alive, v=>v?1:0) });
 
-      reader = {
-        seek(target){
-          target = clamp(target, 0, frames-1);
-          let start = 0;
-          for (const k of snaps.keys()) if (k<=target && k>start) start=k;
-          let LQ;
-          if (start===0 && !snaps.has(0)) {
-            LQ = new Uint16Array(grains*2); LQ.fill(0); alive.fill(true);
-            for (let i=0;i<=target;i++){ LQ = applyFrame(i); if (i%SNAP===0) makeSnap(i, LQ); }
-          } else {
-            const s = snaps.get(start);
-            LQ = new Uint16Array(s.lastQ);
-            alive = Array.from(s.alive, b=>!!b);
-            for (let i=start+1;i<=target;i++){ LQ = applyFrame(i); if (i%SNAP===0) makeSnap(i, LQ); }
-          }
-          return LQ;
-        },
-        getFrame(i){ return this.seek(i); }
+      const seek = (target)=>{
+        target = clamp(target, 0, frames-1);
+        let start = 0;
+        for (const k of snaps.keys()) if (k<=target && k>start) start=k;
+        if (start===0 && !snaps.has(0)) { lastQ.fill(0); alive.fill(true); }
+        else { const s = snaps.get(start); lastQ.set(s.lastQ); alive = Array.from(s.alive, b=>!!b); }
+        for (let i=start; i<=target; i++){ applyFrame(i); if (i%SNAP===0) makeSnap(i); }
       };
 
-      cur = 0; drawFrame(cur);
+      reader = {
+        copyFrame(i){
+          i = clamp(i,0,frames-1);
+          seek(i);
+          return { q: new Uint16Array(lastQ), alive: Uint8Array.from(alive, v=>v?1:0) };
+        }
+      };
+
+      fidx = 0; pairCache.fi = -1; drawInterp(fidx);
     } catch (e) { fail('sparse load error: ' + e.message); }
   }
 
-  function xHalf(y) {
-    const H = meta.H, neck = meta.neck, bulb = meta.bulb, c1 = Number(meta.c1||0), c2 = Number(meta.c2||0);
-    const ay = Math.abs(y);
-    const t = Math.min(1, ay / H);
-    const bump = t * (1 - t);
-    let s = t + c1*bump + c2*(2*bump*(t-0.5));
-    s = Math.max(0, Math.min(1, s));
-    return (neck/2) + (bulb - neck/2) * s;
-  }
-  function drawWalls() {
-    const H = meta.H;
-    ctx.strokeStyle = "#bfc7d8";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    const steps = 220;
-    for (let i=0;i<=steps;i++){
-      const y = -H + (2*H)*i/steps;
-      const [xl,yl] = worldToScreen(-xHalf(y), y);
-      if (i===0) ctx.moveTo(xl,yl); else ctx.lineTo(xl,yl);
-    }
-    for (let i=steps;i>=0;i--){
-      const y = -H + (2*H)*i/steps;
-      const [xr,yr] = worldToScreen(+xHalf(y), y);
-      ctx.lineTo(xr,yr);
-    }
-    ctx.closePath();
-    ctx.stroke();
-  }
-  function drawFrame(i) {
+  /* ---------- Interpolated drawing ---------- */
+  function ensurePair(fi){
     if (!reader) return;
-    const u16 = reader.getFrame(i);
+    if (pairCache.fi === fi) return;
+    pairCache.fi = fi;
+    const A = reader.copyFrame(fi);
+    const B = reader.copyFrame(Math.min(fi+1, frames-1));
+    pairCache.a = A.q;  pairCache.aliveA = A.alive;
+    pairCache.b = B.q;  pairCache.aliveB = B.alive;
+  }
+
+  function drawInterp(fr){
+    if (!reader) return;
+    const fi = Math.floor(clamp(fr, 0, frames-1));
+    const t  = Math.max(0, Math.min(1, fr - fi));
+    ensurePair(fi);
+
     ctx.clearRect(0,0,cv.width,cv.height);
     drawWalls();
 
-    const rad = Math.max(1, Math.round(meta.r || 2));
+    const rad = Math.max(1, Math.round(meta?.r || 2));
     ctx.fillStyle = grainColor;
     ctx.beginPath();
+
+    const a = pairCache.a, b = pairCache.b, aliveA = pairCache.aliveA, aliveB = pairCache.aliveB;
     for (let g=0; g<grains; g++){
-      if (mode==='sparse' && !alive[g]) continue;
-      const qx = u16[g*2], qy = u16[g*2+1];
-      if (qx===0 && qy===0) continue;
-      if (qx===SENT && qy===SENT) continue;
-      const x = (qx / Q) - (meta.bulb + 5);
-      const y = (qy / Q) - (meta.H + 5);
+      if (!aliveA[g] && !aliveB[g]) continue;
+      const qxA = a[g*2],   qyA = a[g*2+1];
+      const qxB = b[g*2],   qyB = b[g*2+1];
+      if ((qxA===0&&qyA===0)&&(qxB===0&&qyB===0)) continue;
+
+      const qx = qxA + (qxB - qxA) * t;
+      const qy = qyA + (qyB - qyA) * t;
+
+      const x = (qx / (meta?.Q ?? Q)) - ((meta?.bulb ?? 220) + 5);
+      const y = (qy / (meta?.Q ?? Q)) - ((meta?.H ?? 500) + 5);
       const [sx,sy] = worldToScreen(x,y);
       ctx.moveTo(sx+rad, sy);
       ctx.arc(sx, sy, rad, 0, Math.PI*2);
     }
     ctx.fill();
 
-    slider.value = i;
-    finfo.textContent = `${i}/${frames}`;
-    updateClocks(i);
+    slider.value = fi;
+    finfo.textContent = `${fi}/${frames}`;
+    updateClocks(fi);
   }
 
-  // --- playback with accumulator (robust at any effectiveFPS) ---
+  /* ---------- Playback ---------- */
   function tick(ts) {
     if (!reader) return;
     if (!lastTick) lastTick = ts;
     let dt = (ts - lastTick) / 1000;
     lastTick = ts;
-    if (dt > 0.25) dt = 0.25; // tab sleep clamp
+    if (dt > 0.25) dt = 0.25;
 
-    frameAcc += effectiveFPS * dt;
-    if (frameAcc >= 1) {
-      const advance = Math.floor(frameAcc);
-      frameAcc -= advance;
-      const next = Math.min(cur + advance, frames - 1);
-      if (next !== cur) { cur = next; drawFrame(cur); }
-      if (cur >= frames - 1) { stop(); return; }
-    }
+    fidx += effFPS * dt;                 // fractional frame index
+    if (fidx >= frames - 1) { fidx = frames - 1; drawInterp(fidx); stop(); return; }
+    drawInterp(fidx);
     anim = requestAnimationFrame(tick);
   }
-  function play() { stop(); lastTick = 0; frameAcc = 0; anim = requestAnimationFrame(tick); }
+  function play() { stop(); lastTick = 0; anim = requestAnimationFrame(tick); }
   function stop() { if (anim) cancelAnimationFrame(anim); anim = null; }
 
-  // UI wiring
   playBtn.onclick = () => {
     if (!reader) return;
-    // If we're at the end, restart from the beginning
-    if (frames > 0 && cur >= frames - 1) {
-      cur = 0;
-      reader.seek(0);
-      drawFrame(0);
+    if (frames > 0 && Math.floor(fidx) >= frames - 1) {
+      fidx = 0;
+      pairCache.fi = -1;
+      drawInterp(fidx);
     }
     play();
   };
   pauseBtn.onclick = () => stop();
-  slider.oninput = () => { stop(); reader.seek(Number(slider.value)); cur = Number(slider.value); drawFrame(cur); };
-  jumpBtn.onclick = () => { if (lastCrossFrame!=null){ stop(); cur = lastCrossFrame; reader.seek(cur); drawFrame(cur);} };
+  slider.oninput = () => { stop(); fidx = Number(slider.value); pairCache.fi = -1; drawInterp(fidx); };
+  jumpBtn.onclick = () => { if (lastCrossFrame!=null){ stop(); fidx = lastCrossFrame; pairCache.fi = -1; drawInterp(fidx);} };
 
-  // alignment -> effective FPS
+  /* ---------- Alignment ---------- */
   let alignSec = null;
+  function computeEffFPS() {
+    if (alignSec!=null && lastCrossFrame!=null && lastCrossFrame>0) {
+      const lastCrossSec = lastCrossFrame / baseFPS;
+      const factor = lastCrossSec / alignSec;  // <1 slower, >1 faster
+      effFPS = baseFPS * factor;
+      if (!Number.isFinite(effFPS) || effFPS <= 0) effFPS = baseFPS;
+      alignInfo.textContent = `Playback scales so lastCross ≈ ${alignSec.toFixed(2)} s (eff FPS: ${effFPS.toFixed(2)}).`;
+    } else {
+      effFPS = baseFPS;
+      alignInfo.textContent = '';
+    }
+    fpsEl.textContent = effFPS.toFixed(2);
+  }
   alignSecInp.addEventListener('input', () => {
     const v = Number(alignSecInp.value);
     alignSec = Number.isFinite(v) && v>0 ? v : null;
-    computeEffectiveFPS();
+    computeEffFPS();
   });
-  resetAlignBtn.onclick = () => { alignSec = null; alignSecInp.value = ""; computeEffectiveFPS(); };
-
-  function computeEffectiveFPS() {
-    if (alignSec!=null && lastCrossFrame!=null && lastCrossFrame>0) {
-      const lastCrossSec = lastCrossFrame / baseFPS;
-      const factor = lastCrossSec / alignSec;            // <1 slower, >1 faster
-      effectiveFPS = baseFPS * factor;
-      if (!Number.isFinite(effectiveFPS) || effectiveFPS <= 0) effectiveFPS = baseFPS;
-      alignInfo.textContent = `Playback scales so lastCross ≈ ${alignSec.toFixed(2)} s (eff FPS: ${effectiveFPS.toFixed(2)}).`;
-    } else {
-      effectiveFPS = baseFPS;
-      alignInfo.textContent = '';
-    }
-    fpsEl.textContent = effectiveFPS.toFixed(2);
-  }
+  resetAlignBtn.onclick = () => { alignSec = null; alignSecInp.value = ""; computeEffFPS(); };
 
   function updateClocks(i) {
     if (lastCrossFrame!=null) {
-      const secsLeft = Math.max(0, (lastCrossFrame - i) / effectiveFPS);
+      const secsLeft = Math.max(0, (lastCrossFrame - i) / effFPS);
       leftCross.textContent = secsLeft.toFixed(1);
     } else leftCross.textContent = '—';
-    const endLeft = Math.max(0, (frames - 1 - i) / effectiveFPS);
+    const endLeft = Math.max(0, (frames - 1 - i) / effFPS);
     leftEnd.textContent = new Date(endLeft * 1000).toISOString().substr(14, 5);
   }
 
-  // Zoom, Pan, Color
-  function applyZoomUI() {
-    const z = Number(zoomCtl.value) || 100;
-    viewZoom = z / 100;
-    zoomLbl.textContent = `${z}%`;
-    drawFrame(cur||0);
-  }
-  function applyPanUI() {
-    const p = Number(panYCtl.value) || 0;
-    panYFrac = p / 100;
-    panYLbl.textContent = `${p}%`;
-    drawFrame(cur||0);
-  }
-  function applyGrainColor() {
-    grainColor = grainColorInput.value || '#f1f4ff';
-    drawFrame(cur||0);
-  }
+  /* ---------- View controls & DPI ---------- */
+  function applyZoomUI(){ viewZoom = (Number(zoomCtl.value)||100)/100; zoomLbl.textContent = `${Math.round(viewZoom*100)}%`; drawInterp(fidx||0); }
+  function applyPanUI(){ panYFrac = (Number(panYCtl.value)||0)/100; panYLbl.textContent = `${Math.round(panYFrac*100)}%`; drawInterp(fidx||0); }
+  function applyGrainColor(){ grainColor = grainColorInput.value || '#f1f4ff'; drawInterp(fidx||0); }
   zoomCtl.addEventListener('input', applyZoomUI);
   panYCtl.addEventListener('input', applyPanUI);
   grainColorInput.addEventListener('input', applyGrainColor);
 
-  // resize canvas to devicePixelRatio
   function resizeCanvas() {
     const pr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     const w = cv.clientWidth, h = cv.clientHeight;
     cv.width = Math.round(w * pr);
     cv.height = Math.round(h * pr);
     ctx.setTransform(pr,0,0,pr,0,0);
-    drawFrame(cur||0);
+    drawInterp(fidx||0);
   }
   new ResizeObserver(resizeCanvas).observe(cv);
 
-  // init labels once
+  // init
+  computeEffFPS();
   applyZoomUI();
   applyPanUI();
   applyGrainColor();

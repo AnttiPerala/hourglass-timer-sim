@@ -1,5 +1,41 @@
 [
   {
+    "file": "bakes/hourglass_60s_neck7_g4000_capsule_sparse_Q32_mfr7ulww-3xd6y3.json",
+    "label": "hourglass_60s_neck7_g4000_capsule_sparse_Q32_mfr7ulww-3xd6y3",
+    "duration": 60,
+    "fps": 240,
+    "grains": 4000,
+    "neck": 7,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": null,
+    "date": "2025-09-19T19:54:46.963Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck7_g4000_capsule_sparse_Q32_mfr7m407-kwm8w4.json",
+    "label": "hourglass_10s_neck7_g4000_capsule_sparse_Q32_mfr7m407-kwm8w4",
+    "duration": 10,
+    "fps": 60,
+    "grains": 4000,
+    "neck": 7,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": null,
+    "date": "2025-09-19T19:06:45.615Z"
+  },
+  {
+    "file": "bakes/hourglass_10s_neck7_g4000_capsule_sparse_Q32_mfr7k63b-0ppfcy.json",
+    "label": "hourglass_10s_neck7_g4000_capsule_sparse_Q32_mfr7k63b-0ppfcy",
+    "duration": 10,
+    "fps": 60,
+    "grains": 4000,
+    "neck": 7,
+    "c1": 0,
+    "c2": 0,
+    "lastCrossFrame": 294,
+    "date": "2025-09-19T19:04:15.896Z"
+  },
+  {
     "file": "bakes/hourglass_10s_neck9_g4000_capsule_sparse_Q32_mfr7anxa-a801rl.json",
     "label": "hourglass_10s_neck9_g4000_capsule_sparse_Q32_mfr7anxa-a801rl",
     "duration": 10,
