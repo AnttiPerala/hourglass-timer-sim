@@ -1,4 +1,6 @@
-// bake.js — hourglass bake with capsule walls (no seam catches), strict culling, wall-slip, static-sleep
+// bake.js — full-featured baker with selectable wall mode and advanced tunables.
+// Includes: sleep only deep in bottom (no neck sleep), strict outside culling, Linux-safe sparse finalize,
+// wall-slip and bias assists, optional unclog wobble/pulses, and both rectangle & seam-free capsule walls.
 import fs from "fs";
 import path from "path";
 import Matter from "matter-js";
@@ -24,12 +26,13 @@ const str  = (k, d) => (args[k] ?? d);
 const id           = str("id", `${Date.now()}`);
 const duration     = num("duration", 10);
 const fps          = num("fps", 60);
-const grainsN      = num("grains", 500);
+const grainsN      = num("grains", 800);
 const full         = num("full", 1);
-const neck         = num("neck", 12);
+const neck         = num("neck", 18);
 const H            = num("H", 500);
 const bulb         = num("bulb", 220);
 const r            = num("r", 2);
+const k            = num("k", 0.1); // compatibility placeholder
 const bounce       = num("bounce", 0.12);
 const friction     = num("friction", 0.02);
 const tiltDeg      = num("tiltDeg", 0);
@@ -37,20 +40,20 @@ const c1           = num("c1", 0.0);
 const c2           = num("c2", 0.0);
 const slat         = num("slat", 0);
 const wallThicknessArg = num("wallThickness", 0); // 0 => auto
+const wallMode     = str("wallMode", "capsule");  // "rect" | "capsule"
 const sleepVel     = num("sleepVel", 2);
 const sleepMs      = num("sleepMs", 500);
+const sleepMode    = str("sleepMode", "static");  // "static" | "sleep" | "remove"
 const flushMaxSec  = num("flushMaxSec", 15);
 const noFlush      = bool("noFlush");
 const outDir       = str("outDir", "bakes");
-const outputMode   = str("outputMode", "dense"); // dense|sparse
+const outputMode   = str("outputMode", "sparse"); // dense|sparse
 const Q            = num("Q", 32);
-const progress     = bool("progress");
 const sparseThresholdPx = num("sparseThresholdPx", 1 / Q);
-/* sleep behaviour: "static" (default) | "sleep" | "remove" */
-const sleepMode    = str("sleepMode", "static");
+const progress     = bool("progress");
 
 /* ----- stability helpers ----- */
-const SUBSTEPS     = Math.max(1, Math.round(60 / Math.max(1, fps))); // ~2 at 30fps
+const SUBSTEPS     = Math.max(1, Math.round(60 / Math.max(1, fps)));
 const MAX_SPEED    = num("maxSpeed", 24);
 
 /* ----- outside culling controls ----- */
@@ -59,12 +62,15 @@ const outsideCullFrames   = Math.max(1, num("outsideCullFrames", 2));
 const hardKillPad         = num("hardKillPad", 0.2);
 const strictKillPad       = num("strictKillPad", 0.15);
 
-/* -------------------- sleep only deep in bottom bulb -------------------- */
+/* -------------------- sleep bands -------------------- */
+// Only allow sleep deep in the *bottom* bulb AND far enough from the neck
 const sleepOnlyBelowFrac = num("sleepOnlyBelowFrac", 0.58);
-const sleepOnlyBelowY = H * sleepOnlyBelowFrac;
+const neckNoSleepBandPx  = num("neckNoSleepBandPx", Math.max(80, neck * 3));   // forbid sleep within +/- band around neck
+const bottomSleepBandPx  = num("bottomSleepBandPx", Math.round(H * 0.35));     // require we are within this distance from bottom
+const sleepOnlyBelowY    = Math.max(sleepOnlyBelowFrac * H, H - bottomSleepBandPx);
 
-/* -------------------- unclog helpers -------------------- */
-const unclogAssist = args.unclogAssist ? true : false;
+/* -------------------- unclog helpers (optional wobble/pulses) -------------------- */
+const unclogAssist = bool("unclogAssist");
 const vibeAmpBaseDeg   = num("vibeAmpDeg", 0.25);
 const vibeHz           = num("vibeHz", 2.0);
 const unclogDelaySec   = num("antiClogPeriod", 0.30);
@@ -72,7 +78,7 @@ const rescueTopCount   = num("rescueTopCount", 25);
 const vibeAmpMaxDeg    = num("antiClogMaxAmpDeg", 4.5);
 const pulseEverySec    = num("antiClogPulseEvery", 0.12);
 const pulseZoneY       = num("antiClogZoneY", 30);
-const pulseTopOnly     = !bool("pulseBottomToo");
+const pulseBottomToo   = bool("pulseBottomToo"); // if true, allow pulses below neck too
 const pulseForce       = num("antiClogPulseForce", 1.0e-5);
 const rescueDownBias   = num("antiClogDownBias", 4.0e-6);
 
@@ -117,47 +123,82 @@ function xHalf(y) {
   return (neck / 2) + (bulb - neck / 2) * s;
 }
 
-/* -------------------- walls: capsule chain (no seam catches) -------------------- */
+/* -------------------- walls -------------------- */
 const wallThickness = wallThicknessArg > 0 ? wallThicknessArg : Math.max(12, Math.ceil(r * 4));
-function buildWalls() {
+
+function buildWallsRect() {
+  const segs = 240;
+  const thickness = wallThickness;
+  const halfT = thickness / 2;
+  const overlap = thickness * 3.0;
+  const yMin = -H, yMax = H;
+  const dy = (yMax - yMin) / segs;
+  const wallOpts = (angle) => ({ isStatic: true, angle, friction: 0, frictionStatic: 0, restitution: 0 });
+  const bodies = [];
+  for (let i = 0; i < segs; i++) {
+    const y0 = yMin + i * dy;
+    const y1 = yMin + (i + 1) * dy;
+    const xm0 = xHalf(y0), xm1 = xHalf(y1);
+    // left
+    {
+      const p0 = { x: -xm0, y: y0 }, p1 = { x: -xm1, y: y1 };
+      const dx = p1.x - p0.x, dyS = p1.y - p0.y;
+      const len = Math.hypot(dx, dyS) + overlap;
+      const ang = Math.atan2(dyS, dx);
+      let nx = -dyS, ny = dx; const nl = Math.hypot(nx, ny) || 1; nx/=nl; ny/=nl; if (nx>0){nx=-nx;ny=-ny;}
+      const cx=(p0.x+p1.x)/2+nx*halfT, cy=(p0.y+p1.y)/2+ny*halfT;
+      bodies.push(Bodies.rectangle(cx, cy, len, thickness, wallOpts(ang)));
+    }
+    // right
+    {
+      const p0 = { x: +xm0, y: y0 }, p1 = { x: +xm1, y: y1 };
+      const dx = p1.x - p0.x, dyS = p1.y - p0.y;
+      const len = Math.hypot(dx, dyS) + overlap;
+      const ang = Math.atan2(dyS, dx);
+      let nx = -dyS, ny = dx; const nl = Math.hypot(nx, ny) || 1; nx/=nl; ny/=nl; if (nx<0){nx=-nx;ny=-ny;}
+      const cx=(p0.x+p1.x)/2+nx*halfT, cy=(p0.y+p1.y)/2+ny*halfT;
+      bodies.push(Bodies.rectangle(cx, cy, len, thickness, wallOpts(ang)));
+    }
+  }
+  if (slat > 0) bodies.push(Bodies.rectangle(0, 0, slat, thickness, { isStatic:true, friction:0, frictionStatic:0, restitution:0 }));
+  // bottom floor only
+  bodies.push(Bodies.rectangle(0,  H + halfT, WORLD_W, thickness, { isStatic:true }));
+  bodies.forEach(b => World.add(engine.world, b));
+}
+function buildWallsCapsule() {
   const rad = wallThickness / 2;
-  const segs = 420; // more points -> smoother
+  const segs = 420;
   const dy = (2*H) / segs;
   const eps = 1e-3;
-
   const circleOpts = { isStatic:true, friction:0, frictionStatic:0, restitution:0, label:"wall" };
-
-  // helper: outward normal at (y)
   const normalAt = (y) => {
     const dxdy = (xHalf(Math.min(H, y+eps)) - xHalf(Math.max(-H, y-eps))) / (2*eps);
-    const nx = 1, ny = -dxdy; // right-wall outward for tangent (dxdy,1)
+    const nx = 1, ny = -dxdy;
     const inv = 1/Math.hypot(nx,ny);
     return { nx:nx*inv, ny:ny*inv };
   };
-
   for (let i=0;i<=segs;i++){
     const y = -H + i*dy;
-    // right side
-    {
-      const x = xHalf(y);
-      const {nx,ny} = normalAt(y); // outward on right
-      const cx = x + nx*rad, cy = y + ny*rad;
-      World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts));
-    }
-    // left side
+    // right
     {
       const x = xHalf(y);
       const {nx,ny} = normalAt(y);
-      const cx = -(x + nx*rad), cy = y + ny*rad; // mirror
+      const cx = x + nx*rad, cy = y + ny*rad;
+      World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts));
+    }
+    // left
+    {
+      const x = xHalf(y);
+      const {nx,ny} = normalAt(y);
+      const cx = -(x + nx*rad), cy = y + ny*rad;
       World.add(engine.world, Bodies.circle(+cx, cy, rad, circleOpts));
     }
   }
-
   if (slat > 0) World.add(engine.world, Bodies.rectangle(0, 0, slat, wallThickness, { isStatic:true, friction:0, frictionStatic:0, restitution:0 }));
-  // bottom floor
   World.add(engine.world, Bodies.rectangle(0,  H + rad, WORLD_W, wallThickness, { isStatic:true }));
 }
-buildWalls();
+// build chosen mode
+if (wallMode === "capsule") buildWallsCapsule(); else buildWallsRect();
 
 /* -------------------- helper: inside test -------------------- */
 function fullyInsideCircle(p) {
@@ -200,7 +241,7 @@ while (placed < grainsN && tries < maxTries) { tries++; const y = topYmin + Math
 while (placed < grainsN) { const y = -H + 30 - placed * (2*r + 0.2); if (tryPlace(y)) placed++; }
 
 /* -------------------- output -------------------- */
-const nameBase = `hourglass_${duration}s_neck${neck}_g${grainsN}_${outputMode}_Q${Q}_${id}`;
+const nameBase = `hourglass_${duration}s_neck${neck}_g${grainsN}_${wallMode}_${outputMode}_Q${Q}_${id}`;
 const jsonPath = path.join(outDir, `${nameBase}.json`);
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -216,8 +257,6 @@ function writeVarint(s,v){ let n=v>>>0; while(n>=0x80){ s.write(Buffer.from([(n&
 
 const binFsPath  = path.join(outDir, `${nameBase}.bin`);
 const sbinFsPath = path.join(outDir, `${nameBase}.sbin`);
-const binUrlPath  = "/" + path.posix.join("bakes", `${nameBase}.bin`);
-const sbinUrlPath = "/" + path.posix.join("bakes", `${nameBase}.sbin`);
 
 if (outputMode === "dense") {
   binStream = fs.createWriteStream(binFsPath);
@@ -230,7 +269,6 @@ if (outputMode === "dense") {
 const targetFrames = Math.round(duration * fps);
 let frames = 0;
 let lastCrossFrame = null;
-let lastFlowFrame = 0;
 let stallFrames = 0;
 let pulseAccum = 0;
 
@@ -269,8 +307,8 @@ function recordFrame() {
 function emitProgress(){ if (progress) console.log("BAKE " + JSON.stringify({event:"progress", frame:frames, target:targetFrames})); }
 function emitMeta(){
   console.log("BAKE " + JSON.stringify({
-    event:"meta", grains:grainsN, fps, duration, neck, bulb, H, r, bounce, friction, Q, mode:outputMode,
-    wallThickness, sleepOnlyBelowFrac, sleepMode,
+    event:"meta", grains:grainsN, fps, duration, neck, bulb, H, r, bounce, friction, Q, mode:outputMode, wallMode,
+    wallThickness, sleepOnlyBelowFrac, neckNoSleepBandPx, bottomSleepBandPx, sleepOnlyBelowY,
     outsideKillPad, outsideCullFrames, hardKillPad, strictKillPad, unclogAssist,
     wallSlipPx, wallSlipVel, wallSlipKickF, wallSlipKickDownF, wallSlipCooldownMs,
     wallBiasBandPx, wallBiasInF, wallBiasDownF
@@ -293,21 +331,17 @@ function pulseNeck(topCount) {
   const baseBand = pulseZoneY;
   const wideBand = Math.min(H, Math.max(80, 0.18 * H));
   const yBand = (topCount <= rescueTopCount) ? Math.max(baseBand, wideBand) : baseBand;
-
   const every = (topCount <= rescueTopCount) ? Math.min(pulseEverySec, 0.08) : pulseEverySec;
   if (pulseAccum < every) return;
   pulseAccum = 0;
-
   for (const g of grains) {
     if (g._removed) continue;
     const p = g.position;
     const yLoc = localY(p);
     if (Math.abs(yLoc) > yBand) continue;
-    if (pulseTopOnly && yLoc >= 0) continue;
-
+    if (!pulseBottomToo && yLoc >= 0) continue;
     const xLimit = xHalf(yLoc) - (r + outsideKillPad);
     if (Math.abs(p.x) > xLimit + r*0.5) continue;
-
     const fx = (Math.random() - 0.5) * pulseForce * 2;
     const fy = (Math.random() - 0.5) * pulseForce * 0.6 + (yLoc < 0 ? +rescueDownBias : 0);
     Body.applyForce(g, p, { x: fx, y: fy });
@@ -317,15 +351,11 @@ function pulseNeck(topCount) {
 /* -------------------- outside culling -------------------- */
 function shouldCullOutside(g) {
   const p = g.position;
-  // far out of bounds: immediate
   if (Math.abs(p.x) > bulb + 48 || p.y < -H - 48 || p.y > H + 48) return true;
-
   const limit = xHalf(p.y);
   const dx = Math.abs(p.x) - limit;
-
   if (dx > strictKillPad) return true;
   if (dx > (r + hardKillPad)) return true;
-
   if (dx > (r + outsideKillPad)) {
     g._outsideCount = (g._outsideCount || 0) + 1;
     if (g._outsideCount >= outsideCullFrames) return true;
@@ -337,28 +367,28 @@ function shouldCullOutside(g) {
 
 /* -------------------- loop -------------------- */
 const runner = Runner.create({ isFixed:true, delta:DT });
-
 function stepOnce() {
-  // Kill any escapees / outside silhouette
   for (const g of grains) {
     if (g._removed) continue;
     if (shouldCullOutside(g)) { Composite.remove(engine.world, g); g._removed = true; continue; }
   }
 
-  // Sleep only deep in bottom bulb
+  // Sleep only deep in bottom bulb AND far from neck
   for (const g of grains) {
     if (g._removed) continue;
     const yLoc = localY(g.position);
     const speed = Math.hypot(g.velocity.x, g.velocity.y);
-    if (yLoc >= sleepOnlyBelowY) {
+    const farFromNeck = (yLoc >= neckNoSleepBandPx);
+    const deepBottom  = (yLoc >= sleepOnlyBelowY);
+    if (farFromNeck && deepBottom) {
       if (!g.isStatic) {
-        if (speed < sleepVel) g._sleepAccum += DT*1000; else g._sleepAccum = 0;
+        if (speed < sleepVel) g._sleepAccum = (g._sleepAccum || 0) + DT*1000; else g._sleepAccum = 0;
         if (g._sleepAccum >= sleepMs) {
           if (sleepMode === "remove") {
             Composite.remove(engine.world, g); g._removed = true; continue;
           } else if (sleepMode === "sleep") {
             Sleeping.set(g, true); g._softSleeping = true; g._sleepAccum = 0;
-          } else { // "static" default
+          } else {
             Body.setVelocity(g, {x:0,y:0});
             Body.setAngularVelocity(g, 0);
             Body.setStatic(g, true);
@@ -397,34 +427,30 @@ function stepOnce() {
       g._lastKickAt = nowMs;
     }
 
-    if (unclogAssist) {
-      // wall slip
-      const limit = xHalf(yLoc) - (r + 0.05);
-      const nearWall = Math.abs(Math.abs(p.x) - limit) <= wallSlipPx;
-      if (nearWall && spd < wallSlipVel) {
-        const last = g._lastWallKickAt || -1e9;
-        if (nowMs - last >= wallSlipCooldownMs) {
-          const inward = (p.x >= 0) ? -1 : +1;
-          Body.applyForce(g, p, { x: inward * wallSlipKickF, y: wallSlipKickDownF });
-          g._lastWallKickAt = nowMs;
-        }
+    // wall slip
+    const limit = xHalf(yLoc) - (r + 0.05);
+    const nearWall = Math.abs(Math.abs(p.x) - limit) <= wallSlipPx;
+    if (nearWall && spd < wallSlipVel) {
+      const last = g._lastWallKickAt || -1e9;
+      if (nowMs - last >= wallSlipCooldownMs) {
+        const inward = (p.x >= 0) ? -1 : +1;
+        Body.applyForce(g, p, { x: inward * wallSlipKickF, y: wallSlipKickDownF });
+        g._lastWallKickAt = nowMs;
       }
+    }
 
-      // gentle bias band
-      {
-        const limit2 = xHalf(yLoc) - (r + 0.05);
-        const dist = Math.abs(limit2 - Math.abs(p.x));
-        if (dist <= wallBiasBandPx) {
-          const inward = (p.x >= 0) ? -1 : +1;
-          Body.applyForce(g, p, { x: inward * wallBiasInF, y: wallBiasDownF });
-        }
-      }
+    // gentle bias band
+    const limit2 = xHalf(yLoc) - (r + 0.05);
+    const dist = Math.abs(limit2 - Math.abs(p.x));
+    if (dist <= wallBiasBandPx) {
+      const inward = (p.x >= 0) ? -1 : +1;
+      Body.applyForce(g, p, { x: inward * wallBiasInF, y: wallBiasDownF });
     }
 
     g._lastPos = { x: p.x, y: p.y };
   }
 
-  // Gravity wobble (only if unclog assist is on), else fixed tilt
+  // Optional unclog wobble & pulses
   if (unclogAssist) {
     const topCount = countTopInside();
     const tSec = frames / fps;
@@ -433,6 +459,8 @@ function stepOnce() {
     engine.gravity.x = Math.sin(ang);
     engine.gravity.y = Math.cos(ang);
 
+    const flowed = grains.some(g => !g._removed && g._prevLocalY < 0 && localY(g.position) >= 0);
+    if (flowed) { stallFrames = 0; pulseAccum = 0; } else { stallFrames++; pulseAccum += DT; }
     const stalled = (stallFrames / fps) > unclogDelaySec;
     if (stalled) pulseNeck(topCount);
   } else {
@@ -450,16 +478,6 @@ function stepOnce() {
     if (sp > MAX_SPEED) { const m = MAX_SPEED/sp; Body.setVelocity(g, {x:vx*m,y:vy*m}); }
   }
 
-  // Flow detection
-  let flowed = false;
-  for (const g of grains) {
-    if (g._removed) continue;
-    const yLoc = localY(g.position);
-    if (g._prevLocalY < 0 && yLoc >= 0) { flowed = true; break; }
-  }
-  if (flowed) { lastFlowFrame = frames; stallFrames = 0; pulseAccum = 0; }
-  else { stallFrames++; pulseAccum += DT; }
-
   if (lastCrossFrame == null && topBulbEmptyNow()) lastCrossFrame = frames;
 
   recordFrame();
@@ -470,42 +488,19 @@ function stepOnce() {
 let done = false;
 const tMax = Date.now() + flushMaxSec * 1000;
 
-function loop() {
-  if (done) return;
-
-  if (frames < targetFrames) { stepOnce(); return setImmediate(loop); }
-
-  if (noFlush) {
-    done = true;
-  } else {
-    if (topBulbEmptyNow() || Date.now() >= tMax) done = true;
-    else { stepOnce(); return setImmediate(loop); }
-  }
-
-  // Finish
-  if (outputMode === "dense") {
-    binStream.end();
-  } else {
-    const fd = fs.openSync(sbinFsPath, "r+");
-    const buf = Buffer.allocUnsafe(4); buf.writeUInt32LE(frames, 0);
-    // header: "HGSB"(4) + u16 Q (2) + u32 grains (4) + u32 frames (4) -> frames at offset 10
-    fs.writeSync(fd, buf, 0, 4, 10); fs.closeSync(fd);
-    sbinStream.end();
-  }
-
+function finalizeAndWrite() {
   const json = {
-    meta: { duration, fps, grains:grainsN, full, neck, H, bulb, r, bounce, friction, tiltDeg, slat, c1, c2, Q, mode:outputMode,
-            wallThickness, sleepOnlyBelowFrac, sleepMode,
+    meta: { duration, fps, grains:grainsN, full, neck, H, bulb, r, k, bounce, friction, tiltDeg, slat, c1, c2, Q, mode:outputMode, wallMode,
+            wallThickness, sleepOnlyBelowFrac, neckNoSleepBandPx, bottomSleepBandPx, sleepOnlyBelowY,
             outsideKillPad, outsideCullFrames, hardKillPad, strictKillPad, unclogAssist,
             wallSlipPx, wallSlipVel, wallSlipKickF, wallSlipKickDownF, wallSlipCooldownMs,
             wallBiasBandPx, wallBiasInF, wallBiasDownF },
     frames, fps,
     lastCrossFrame: lastCrossFrame ?? null,
-    ...(outputMode === "dense" ? { bin:  binUrlPath } : { sbin: sbinUrlPath })
+    ...(outputMode === "dense" ? { bin:  "/" + path.posix.join("bakes", `${nameBase}.bin`) } : { sbin: "/" + path.posix.join("bakes", `${nameBase}.sbin`) })
   };
   fs.writeFileSync(jsonPath, JSON.stringify(json, null, 2), "utf-8");
 
-  // index.json
   const indexPath = path.join(outDir, "index.json");
   let idx = []; try { idx = JSON.parse(fs.readFileSync(indexPath, "utf-8")); } catch {}
   const entry = { file:path.posix.join("bakes", path.basename(jsonPath)), label:nameBase, duration, fps, grains:grainsN, neck, c1, c2, lastCrossFrame: lastCrossFrame ?? null, date:new Date().toISOString() };
@@ -515,6 +510,31 @@ function loop() {
   fs.writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf-8");
 
   console.log("BAKE " + JSON.stringify({ event:"done", file:path.posix.join("bakes", path.basename(jsonPath)), frames, fps, lastCrossFrame: lastCrossFrame ?? null }));
+}
+
+function loop() {
+  if (done) return;
+  if (frames < targetFrames) { stepOnce(); return setImmediate(loop); }
+
+  if (noFlush) {
+    done = true;
+  } else {
+    if (topBulbEmptyNow() || Date.now() >= tMax) done = true;
+    else { stepOnce(); return setImmediate(loop); }
+  }
+
+  if (outputMode === "dense") {
+    binStream.end(() => finalizeAndWrite());
+  } else {
+    // Linux-safe: patch frames after stream finished
+    sbinStream.end(() => {
+      const fd = fs.openSync(sbinFsPath, "r+");
+      const buf = Buffer.allocUnsafe(4); buf.writeUInt32LE(frames, 0);
+      fs.writeSync(fd, buf, 0, 4, 10); // offset 10 in header
+      fs.closeSync(fd);
+      finalizeAndWrite();
+    });
+  }
 }
 
 setImmediate(loop);

@@ -2,384 +2,357 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Baker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hourglass Baker</title>
   <style>
-    :root {
-      --bg:#0b0c10; --panel:#151821; --muted:#8aa; --text:#e6eef7;
-      --accent:#5bd; --accent-2:#2ab; --ok:#2ecc71; --warn:#f39c12; --bad:#e74c3c;
-      --line:#2a2f3a;
-    }
-    html,body { background:var(--bg); color:var(--text); font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; margin:0; }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .wrap { max-width: 1080px; margin: 28px auto; padding: 0 18px; }
-    h1 { margin: 0 0 16px; font-size: 28px; }
-    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:14px 18px; }
-    .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
-    .lbl { color: var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; margin-bottom:6px; }
-    .q { display:inline-block; width:16px; height:16px; border-radius:50%; border:1px solid var(--line); text-align:center; line-height:14px; font-size:11px; color:var(--muted); cursor:help; }
-    input[type="text"], input[type="number"], select {
-      width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line);
-      background:#0f1118; color:var(--text);
-    }
-    input[type="checkbox"] { transform: translateY(1px); }
-    .row { display:grid; grid-template-columns: repeat(6, 1fr); gap:12px; }
-    .row > div { }
-    .section-title { font-weight:600; margin-bottom:10px; }
-    .btn { background:#151d27; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:8px 12px; cursor:pointer; }
-    .btn:hover { background:#19222f; }
-    .btn.primary { background:var(--accent); color:#03131a; border-color:transparent; font-weight:600; }
-    .btn.small { padding:6px 8px; font-size:12px; }
-    .controls { display:flex; gap:10px; align-items:center; margin-top:10px; }
-    .status { margin-top:16px; }
-    progress { width:100%; height:12px; }
-    .log { margin-top:10px; background:#0a0d14; border:1px solid var(--line); border-radius:8px; padding:8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; overflow:auto; max-height:260px; white-space: pre-wrap; }
-    .log-toolbar { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted); margin:6px 0; }
-    .pill { background:#0e1520; border:1px solid var(--line); padding:4px 8px; border-radius:999px; font-size:12px; color:var(--muted); }
-    .tip { color:var(--muted); font-size:12px; margin-left:10px; }
-    .right { margin-left:auto; }
-    .muted { color: var(--muted); }
-    .ok { color: var(--ok); }
-    .warn { color: var(--warn); }
-    .bad { color: var(--bad); }
+    :root { --panel:#0f141b; --ink:#e7edf5; --line:#1f2733; --muted:#9fb2cc; --accent:#1952ff; }
+    html, body { height:100%; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Arial, sans-serif;
+           margin: 0; background:#0b0d10; color:var(--ink); }
+    header { padding: 12px 16px; background:#10151b; border-bottom:1px solid #1c2430; display:flex; align-items:center; gap:16px; position:sticky; top:0; z-index:2; }
+    h1 { font-size: 18px; margin: 0; font-weight: 600; }
+    main { display:grid; grid-template-columns: 440px 1fr; gap: 16px; padding: 16px; }
+    fieldset { border:1px solid var(--line); border-radius:10px; padding:12px; margin:0 0 12px; }
+    legend { padding: 0 6px; color:var(--muted); }
+    label { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:6px 0; }
+    label span { color:#c8d7ea; font-size:13px; }
+    input, select { width: 150px; padding:6px 8px; background:var(--panel); color:var(--ink); border:1px solid #273142; border-radius:8px; }
+    input[type="checkbox"] { width:auto; }
+    .row { display:flex; gap:8px; align-items:center; }
+    .btn { background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:600; cursor:pointer; }
+    .muted { color:var(--muted); font-size:13px; }
+    #log { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px; height:340px; overflow:auto; white-space:pre-wrap; word-break:break-word; }
+    #progressWrap { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
+    progress { width:100%; height:16px; }
+    a { color:#9ad1ff; }
+    details summary { cursor:pointer; color:#c8d7ea; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1 class="title">Baker <a href="/public/index.html" class="pill">Bakes Index</a></h1>
-
-    <div class="panel grid">
-      <div class="section-title" style="grid-column: span 12;">Simulation</div>
-
-      <div style="grid-column: span 3;">
-        <div class="lbl">duration (s) <span class="q" title="Total intended bake time in seconds. If noFlush is off, sim may continue until the top bulb empties or flushMaxSec elapses.">?</span></div>
-        <input id="duration" type="number" step="1" value="120">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">fps <span class="q" title="Simulation recording FPS. Engine uses sub-steps automatically at 30 FPS for stability.">?</span></div>
-        <input id="fps" type="number" step="1" value="60">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">grains <span class="q" title="Total number of grains (particles).">?</span></div>
-        <input id="grains" type="number" step="1" value="600">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">full (0–1) <span class="q" title="Initial fill fraction of the top bulb. 1 = as full as seeding allows.">?</span></div>
-        <input id="full" type="number" step="0.05" value="0.9">
-      </div>
-
-      <div style="grid-column: span 3;">
-        <div class="lbl">bulb (px) <span class="q" title="Half-width of the bulb near the top/bottom. In pixels.">?</span></div>
-        <input id="bulb" type="number" step="1" value="220">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">neck (px) <span class="q" title="Narrowest width at the neck (distance between walls).">?</span></div>
-        <input id="neck" type="number" step="1" value="35">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">H (px) <span class="q" title="Half height of a single bulb (center to top/bottom).">?</span></div>
-        <input id="H" type="number" step="1" value="500">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">r (grain radius) <span class="q" title="Radius of each grain in pixels for the physics simulation.">?</span></div>
-        <input id="r" type="number" step="0.5" value="3">
-      </div>
-
-      <div style="grid-column: span 3;">
-        <div class="lbl">bounce (0–1) <span class="q" title="Elasticity (restitution). Lower for less jitter; 0.08–0.15 usually works well.">?</span></div>
-        <input id="bounce" type="number" step="0.01" value="0.12">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">friction (0–1) <span class="q" title="Surface friction for grain–wall and grain–grain. 0.02–0.05 is a good range.">?</span></div>
-        <input id="friction" type="number" step="0.01" value="0.02">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">tilt (deg) <span class="q" title="Tilts gravity only (the glass outline stays upright). Small values (1–3°) help avoid perfect jams.">?</span></div>
-        <input id="tiltDeg" type="number" step="0.1" value="1.5">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">slat (px) <span class="q" title="Optional thin bar at the neck. Leave 0 to disable.">?</span></div>
-        <input id="slat" type="number" step="1" value="0">
-      </div>
-
-      <div style="grid-column: span 3;">
-        <div class="lbl">c1 (curve) <span class="q" title="Curve coefficient 1 for the wall profile. Positive bulges the bulbs.">?</span></div>
-        <input id="c1" type="number" step="0.1" value="0.2">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">c2 (curve) <span class="q" title="Curve coefficient 2 for the wall profile. Adjust together with c1 for the silhouette.">?</span></div>
-        <input id="c2" type="number" step="0.1" value="0.5">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">wall thickness (px) <span class="q" title="Glass wall thickness grown OUTWARD (does not eat into the cavity). Bigger = more robust against tunneling.">?</span></div>
-        <input id="wallThickness" type="number" step="1" value="12">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">noFlush <span class="q" title="If checked, the sim stops exactly at duration, even if the top bulb isn't empty.">?</span></div>
-        <input id="noFlush" type="checkbox">
-      </div>
-
-      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Anti‑clog</div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">unclog assist <span class="q" title="Enables a gentle gravity wobble and occasional micro-pulses around the neck to help grains flow when nearly stalled.">?</span></div>
-        <input id="unclogAssist" type="checkbox" checked>
-      
-      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Wall‑slip assist</div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">wallSlipPx <span class="q" title="Distance from the inner wall to consider a grain 'hugging' the wall. If slow, it will get a tiny inward nudge. Roughly ~0.6×r works well.">?</span></div>
-        <input id="wallSlipPx" type="number" step="0.1" value="0.6">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">wallSlipVel <span class="q" title="Only grains slower than this speed are nudged off the wall.">?</span></div>
-        <input id="wallSlipVel" type="number" step="0.01" value="0.25">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">wallSlipKickF <span class="q" title="Magnitude of the inward nudge force. Increase if beads still camp the wall; decrease if motion looks jittery.">?</span></div>
-        <input id="wallSlipKickF" type="number" step="0.00001" value="0.00012">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">wallSlipKickDownF <span class="q" title="Small downward component of the wall nudge to bias flow toward the neck.">?</span></div>
-        <input id="wallSlipKickDownF" type="number" step="0.00001" value="0.00004">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">wallSlipCooldownMs <span class="q" title="Minimum milliseconds between nudges for the same grain. Avoids jitter.">?</span></div>
-        <input id="wallSlipCooldownMs" type="number" step="10" value="250">
-      </div>
-</div>
-
-      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Sleep / Output</div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">sleepVel (px/s) <span class="q" title="Below this velocity the grain starts accumulating sleep time.">?</span></div>
-        <input id="sleepVel" type="number" step="0.1" value="2">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">sleepMs (ms) <span class="q" title="How long a grain must remain slow before sleep behavior triggers.">?</span></div>
-        <input id="sleepMs" type="number" step="50" value="1500">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">sleepMode <span class="q" title="What to do when a grain falls asleep deep in the lower bulb: • static = convert to immovable blocker (recommended) • sleep = Matter.js sleeping (auto-wakes on impact) • remove = delete from sim.">?</span></div>
-        <select id="sleepMode">
-          <option value="static" selected>static (blocker)</option>
-          <option value="sleep">sleep (auto‑wake)</option>
-          <option value="remove">remove</option>
-        </select>
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">outputMode <span class="q" title="dense = every grain, every frame (large); sparse = only changed grains per frame (small).">?</span></div>
-        <select id="outputMode">
-          <option value="sparse" selected>sparse</option>
-          <option value="dense">dense</option>
-        </select>
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">quantization Q <span class="q" title="How finely coordinates are quantized when writing .bin/.sbin. Higher = finer = larger files.">?</span></div>
-        <input id="Q" type="number" step="1" value="32">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">flushMaxSec <span class="q" title="After duration, continue until top bulb empties or this many seconds elapse (unless noFlush).">?</span></div>
-        <input id="flushMaxSec" type="number" step="1" value="15">
-      </div>
-
-      <div class="section-title" style="grid-column: span 12; margin-top: 8px;">Outside culling & stability</div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">outsideKillPad <span class="q" title="Extra margin added to the grain radius when testing if a grain is outside the cavity silhouette. Bigger = cull earlier.">?</span></div>
-        <input id="outsideKillPad" type="number" step="0.1" value="0.5">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">outsideCullFrames <span class="q" title="How many consecutive frames a grain must be outside before it is destroyed. 1 = instant.">?</span></div>
-        <input id="outsideCullFrames" type="number" step="1" value="2">
-      </div>
-      <div style="grid-column: span 3;">
-        <div class="lbl">maxSpeed (px/s) <span class="q" title="Hard speed clamp to prevent tunneling at low FPS. Lower if you still see escapes; 20–30 px/s works well.">?</span></div>
-        <input id="maxSpeed" type="number" step="1" value="24">
-      </div>
+  <header>
+    <h1>Hourglass Baker</h1>
+    <div class="row">
+      <button id="startBtn" class="btn">Start bake</button>
+      <a href="/public/index.html" class="btn" style="background:#273142">List bakes</a>
     </div>
+    <div style="margin-left:auto" class="muted" id="status">idle</div>
+  </header>
 
-    <div class="controls">
-      <button id="btnStart" class="btn primary">Start bake</button>
-      <button id="btnIndex" class="btn">List bakes</button>
-      <button id="btnReset" class="btn">Reset saved settings</button>
-      <span class="tip">Settings auto‑saved</span>
-    </div>
+  <main>
+    <section>
+      <form id="form">
+        <fieldset>
+          <legend>Timing & Output</legend>
+          <label title="Length of simulation in seconds.">
+            <span>duration (s)</span><input name="duration" type="number" step="1" min="1" value="10">
+          </label>
+          <label title="Bake frames per second. Higher = smoother + heavier.">
+            <span>fps</span><input name="fps" type="number" step="1" min="1" value="60">
+          </label>
+          <label title="Number of grains (particles).">
+            <span>grains</span><input name="grains" type="number" step="1" min="1" value="800">
+          </label>
+          <label title="dense: write every grain every frame. sparse: write only changed grains (smaller files).">
+            <span>outputMode</span>
+            <select name="outputMode">
+              <option value="sparse" selected>sparse</option>
+              <option value="dense">dense</option>
+            </select>
+          </label>
+          <label title="Quantization factor for binary output; higher = finer (and bigger files). e.g., 16–64.">
+            <span>quantization Q</span><input name="Q" type="number" step="1" min="8" value="32">
+          </label>
+          <label title="Sparse write threshold in pixels. Any grain that moves more than this (or on frame 0) is written.">
+            <span>sparseThresholdPx</span><input name="sparseThresholdPx" type="number" step="0.01" min="0" value="0.03125">
+          </label>
+        </fieldset>
 
-    <div class="status panel">
-      <div id="statusText">Status: Idle</div>
-      <progress id="prog" value="0" max="1"></progress>
-      <div class="log-toolbar">
-        <span id="progText" class="muted">0% — 0/0</span>
-        <span class="right">
-          <button id="logClear" class="btn small">Clear</button>
-          <button id="logCopy" class="btn small">Copy</button>
-          <label class="muted"><input id="logScroll" type="checkbox" checked> autoscroll</label>
-        </span>
+        <fieldset>
+          <legend>Geometry</legend>
+          <label title="Half-height of each bulb (px).">
+            <span>H (px)</span><input name="H" type="number" step="1" min="100" value="500">
+          </label>
+          <label title="Half-width of bulb (px).">
+            <span>bulb (px)</span><input name="bulb" type="number" step="1" min="50" value="220">
+          </label>
+          <label title="Neck opening width (px).">
+            <span>neck (px)</span><input name="neck" type="number" step="1" min="6" value="18">
+          </label>
+          <label title="Grain radius (px).">
+            <span>r (px)</span><input name="r" type="number" step="0.5" min="0.5" value="2">
+          </label>
+          <label title="Wall thickness (px). 0 = auto. Thickness grows outward only.">
+            <span>wallThickness</span><input name="wallThickness" type="number" step="1" min="0" value="0">
+          </label>
+          <label title="Choose wall construction. 'capsule' uses overlapping circles for seam-free walls (higher CPU).">
+            <span>wallMode</span>
+            <select name="wallMode">
+              <option value="rect">rectangles (fast)</option>
+              <option value="capsule" selected>capsule (seam-free)</option>
+            </select>
+          </label>
+          <label title="Curve coefficient: roundness shaping; small tweaks recommended.">
+            <span>c1</span><input name="c1" type="number" step="0.05" value="0.0">
+          </label>
+          <label title="Curve coefficient: adds S-curve curvature; small tweaks recommended.">
+            <span>c2</span><input name="c2" type="number" step="0.05" value="0.0">
+          </label>
+          <label title="Optional horizontal divider at the neck (px). 0 = none.">
+            <span>slat (px)</span><input name="slat" type="number" step="1" min="0" value="0">
+          </label>
+          <label title="Tilt in degrees; only changes gravity direction, not visuals.">
+            <span>tilt (deg)</span><input name="tiltDeg" type="number" step="0.1" value="0">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Material</legend>
+          <label title="Restitution (bounciness) 0..1.">
+            <span>bounce</span><input name="bounce" type="number" step="0.01" min="0" max="1" value="0.12">
+          </label>
+          <label title="Friction coefficient 0..1. Lower = more slip.">
+            <span>friction</span><input name="friction" type="number" step="0.005" min="0" max="1" value="0.02">
+          </label>
+          <label title="Clamp grain speeds to this (px/s) for stability.">
+            <span>maxSpeed</span><input name="maxSpeed" type="number" step="1" min="1" value="24">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Sleep & Flush</legend>
+          <label title="Only grains below this speed (px/s) start accumulating sleep time.">
+            <span>sleepVel</span><input name="sleepVel" type="number" step="0.1" min="0" value="2">
+          </label>
+          <label title="How long (ms) a slow grain must remain slow before freezing/sleeping/removal.">
+            <span>sleepMs</span><input name="sleepMs" type="number" step="50" min="0" value="500">
+          </label>
+          <label title="What to do when a grain qualifies for sleep. 'static' keeps it as a blocker.">
+            <span>sleepMode</span>
+            <select name="sleepMode">
+              <option value="static" selected>static</option>
+              <option value="sleep">sleep</option>
+              <option value="remove">remove</option>
+            </select>
+          </label>
+          <label title="Only allow sleep deep in the bottom bulb (fraction of H). Combined with the bands below.">
+            <span>sleepOnlyBelowFrac</span><input name="sleepOnlyBelowFrac" type="number" step="0.01" min="0" max="1" value="0.58">
+          </label>
+          <label title="No-sleep band around the neck (px). Within ±this, grains never sleep.">
+            <span>neckNoSleepBandPx</span><input name="neckNoSleepBandPx" type="number" step="1" min="0" value="80">
+          </label>
+          <label title="Only allow sleep within this distance from the bottom (px).">
+            <span>bottomSleepBandPx</span><input name="bottomSleepBandPx" type="number" step="1" min="0" value="175">
+          </label>
+          <label title="Stop at target frames even if top bulb hasn't emptied.">
+            <span>noFlush</span><input name="noFlush" type="checkbox">
+          </label>
+          <label title="If flushing is allowed, after target frames keep going at most this many seconds.">
+            <span>flushMaxSec</span><input name="flushMaxSec" type="number" step="1" min="1" value="15">
+          </label>
+        </fieldset>
+
+        <details>
+          <summary>Anti-Clog & Nudges</summary>
+          <fieldset>
+            <label title="Enable small gravity wobble and pulses to avoid arching at the neck.">
+              <span>unclogAssist</span><input name="unclogAssist" type="checkbox" checked>
+            </label>
+            <label title="Base wobble amplitude (deg).">
+              <span>vibeAmpDeg</span><input name="vibeAmpDeg" type="number" step="0.05" value="0.25">
+            </label>
+            <label title="Wobble frequency (Hz).">
+              <span>vibeHz</span><input name="vibeHz" type="number" step="0.1" value="2.0">
+            </label>
+            <label title="Seconds of stalled flow before pulses kick in.">
+              <span>antiClogPeriod</span><input name="antiClogPeriod" type="number" step="0.05" value="0.30">
+            </label>
+            <label title="If top grain count ≤ this, use stronger assists.">
+              <span>rescueTopCount</span><input name="rescueTopCount" type="number" step="1" value="25">
+            </label>
+            <label title="Max wobble amplitude when fully engaged (deg).">
+              <span>antiClogMaxAmpDeg</span><input name="antiClogMaxAmpDeg" type="number" step="0.1" value="4.5">
+            </label>
+            <label title="Pulse period (s). Smaller = more frequent.">
+              <span>antiClogPulseEvery</span><input name="antiClogPulseEvery" type="number" step="0.01" value="0.12">
+            </label>
+            <label title="Vertical zone around neck to pulse (px).">
+              <span>antiClogZoneY</span><input name="antiClogZoneY" type="number" step="1" value="30">
+            </label>
+            <label title="Also pulse below the neck (unchecked = only above).">
+              <span>pulseBottomToo</span><input name="pulseBottomToo" type="checkbox">
+            </label>
+            <label title="Pulse force magnitude.">
+              <span>antiClogPulseForce</span><input name="antiClogPulseForce" type="number" step="0.000001" value="0.00001">
+            </label>
+            <label title="Downward bias added to pulses above the neck.">
+              <span>antiClogDownBias</span><input name="antiClogDownBias" type="number" step="0.000001" value="0.000004">
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Wall Slip & Bias</legend>
+            <label title="How close to the wall (px) to trigger a slip nudge.">
+              <span>wallSlipPx</span><input name="wallSlipPx" type="number" step="0.1" value="1.2">
+            </label>
+            <label title="If speed below this (px/s), allow a slip nudge.">
+              <span>wallSlipVel</span><input name="wallSlipVel" type="number" step="0.05" value="0.25">
+            </label>
+            <label title="Horizontal inward force for slip nudge.">
+              <span>wallSlipKickF</span><input name="wallSlipKickF" type="number" step="0.000001" value="0.00012">
+            </label>
+            <label title="Downward force for slip nudge.">
+              <span>wallSlipKickDownF</span><input name="wallSlipKickDownF" type="number" step="0.000001" value="0.00004">
+            </label>
+            <label title="Cooldown between slip nudges (ms).">
+              <span>wallSlipCooldownMs</span><input name="wallSlipCooldownMs" type="number" step="10" value="250">
+            </label>
+            <label title="Band distance from wall where soft inward/down bias is applied.">
+              <span>wallBiasBandPx</span><input name="wallBiasBandPx" type="number" step="1" value="14">
+            </label>
+            <label title="Inward bias magnitude.">
+              <span>wallBiasInF</span><input name="wallBiasInF" type="number" step="0.000001" value="0.00016">
+            </label>
+            <label title="Downward bias magnitude.">
+              <span>wallBiasDownF</span><input name="wallBiasDownF" type="number" step="0.000001" value="0.00006">
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Outside Culling</legend>
+            <label title="Immediate kill once center exceeds inner wall by this many px (strict small tolerance).">
+              <span>strictKillPad</span><input name="strictKillPad" type="number" step="0.01" value="0.15">
+            </label>
+            <label title="Hard kill if beyond radius + pad (px).">
+              <span>hardKillPad</span><input name="hardKillPad" type="number" step="0.01" value="0.2">
+            </label>
+            <label title="Debounced kill if beyond radius + pad (px).">
+              <span>outsideKillPad</span><input name="outsideKillPad" type="number" step="0.01" value="0.5">
+            </label>
+            <label title="Frames outside before debounced kill triggers.">
+              <span>outsideCullFrames</span><input name="outsideCullFrames" type="number" step="1" value="2">
+            </label>
+          </fieldset>
+        </details>
+      </form>
+    </section>
+
+    <section>
+      <div id="progressWrap">
+        <div class="muted">Status: <span id="status2">waiting</span></div>
+        <progress id="prog" max="1" value="0"></progress>
+        <div class="muted"><span id="pct">0%</span> — <span id="fframe">0</span>/<span id="ftarget">0</span></div>
+        <div id="links" class="row" style="margin-top:8px; gap:12px;"></div>
       </div>
-      <div id="log" class="log"></div>
-    </div>
-  </div>
+      <h3 style="margin:12px 0 6px">Live log</h3>
+      <div id="log"></div>
+    </section>
+  </main>
 
-<script>
-(function(){
-  const $ = (id) => document.getElementById(id);
-  const fields = [
-    "duration","fps","grains","full","bulb","neck","H","r","bounce","friction","tiltDeg","slat",
-    "c1","c2","wallThickness","noFlush",
-    "sleepVel","sleepMs","sleepMode","outputMode","Q","flushMaxSec",
-    "outsideKillPad","outsideCullFrames","maxSpeed","unclogAssist","wallSlipPx","wallSlipVel","wallSlipKickF","wallSlipKickDownF","wallSlipCooldownMs"
-  ];
-  const KEY = "baker.settings.v6";
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const form = $('#form');
+    const startBtn = $('#startBtn');
+    const statusEl = $('#status');
+    const status2 = $('#status2');
+    const logEl = $('#log');
+    const prog = $('#prog');
+    const pct = $('#pct');
+    const fframe = $('#fframe');
+    const ftarget = $('#ftarget');
+    const links = $('#links');
 
-  function loadSettings(){
-    let s = {};
-    try { s = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch {}
-    fields.forEach(k => {
-      const el = $(k);
-      if (!el) return;
-      const v = s[k];
-      if (v === undefined) return;
-      if (el.type === "checkbox") el.checked = !!v;
-      else el.value = v;
-    });
-  }
-  function saveSettings(){
-    const s = {};
-    fields.forEach(k => {
-      const el = $(k);
-      if (!el) return;
-      s[k] = (el.type === "checkbox") ? el.checked : el.value;
-    });
-    localStorage.setItem(KEY, JSON.stringify(s));
-  }
-  function toNumber(v, fallback) {
-    const n = Number(v);
-    return isFinite(n) ? n : fallback;
-  }
-  function logLine(kind, msg){
-    const log = $("log");
-    const time = new Date().toLocaleTimeString();
-    const line = `[${time}] ${kind ? "["+kind+"] " : ""}${msg}\n`;
-    log.textContent += line;
-    const doScroll = $("logScroll").checked;
-    if (doScroll) log.scrollTop = log.scrollHeight;
-  }
-
-  function startBake(){
-    saveSettings();
-    const body = {
-      duration: toNumber($("duration").value,120),
-      fps: toNumber($("fps").value,60),
-      grains: toNumber($("grains").value,500),
-      full: toNumber($("full").value,1),
-      bulb: toNumber($("bulb").value,220),
-      neck: toNumber($("neck").value,35),
-      H: toNumber($("H").value,500),
-      r: toNumber($("r").value,3),
-      bounce: toNumber($("bounce").value,0.12),
-      friction: toNumber($("friction").value,0.02),
-      tiltDeg: toNumber($("tiltDeg").value,1.5),
-      slat: toNumber($("slat").value,0),
-      c1: toNumber($("c1").value,0.2),
-      c2: toNumber($("c2").value,0.5),
-      wallThickness: toNumber($("wallThickness").value,12),
-      noFlush: $("noFlush").checked,
-      sleepVel: toNumber($("sleepVel").value,2),
-      sleepMs: toNumber($("sleepMs").value,1500),
-      sleepMode: $("sleepMode").value,
-      outputMode: $("outputMode").value,
-      Q: toNumber($("Q").value,32),
-      flushMaxSec: toNumber($("flushMaxSec").value,15),
-      outsideKillPad: toNumber($("outsideKillPad").value,0.5),
-      outsideCullFrames: toNumber($("outsideCullFrames").value,2),
-      maxSpeed: toNumber($("maxSpeed").value,24),
-      unclogAssist: $("unclogAssist").checked,
-      wallSlipPx: toNumber($("wallSlipPx").value,0.6),
-      wallSlipVel: toNumber($("wallSlipVel").value,0.25),
-      wallSlipKickF: toNumber($("wallSlipKickF").value,0.00012),
-      wallSlipKickDownF: toNumber($("wallSlipKickDownF").value,0.00004),
-      wallSlipCooldownMs: toNumber($("wallSlipCooldownMs").value,250)
-    };
-
-    $("statusText").textContent = "Status: Baking...";
-    $("prog").value = 0; $("prog").max = 1;
-    $("progText").textContent = "0% — 0/0";
-    const log = $("log"); log.textContent = "";
-    logLine("", "connected");
-
-    fetch("/api/bake", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify(body)
-    }).then(r => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    }).then(({id}) => {
-      const es = new EventSource(`/api/stream/${id}`);
-      let target = 0;
-      es.addEventListener("hello", e => {
-        const d = JSON.parse(e.data);
-        logLine("meta", JSON.stringify({event:"hello", id:d.id}));
-      });
-      es.addEventListener("meta", e => {
-        const d = JSON.parse(e.data);
-        logLine("meta", e.data);
-      });
-      es.addEventListener("log", e => {
-        const d = JSON.parse(e.data);
-        logLine(d.level || "log", d.msg || "");
-      });
-      es.addEventListener("progress", e => {
-        const d = JSON.parse(e.data);
-        target = d.target || target;
-        $("prog").max = target || 1;
-        $("prog").value = d.frame || 0;
-        const pct = target ? Math.floor((d.frame/target)*100) : 0;
-        $("progText").textContent = `${pct}% — ${d.frame}/${target || 0}`;
-      });
-      es.addEventListener("done", e => {
-        const d = JSON.parse(e.data);
-        $("statusText").innerHTML = `Status: <span class="ok">Done</span>`;
-        $("prog").max = d.frames || $("prog").max;
-        $("prog").value = d.frames || $("prog").value;
-        $("progText").textContent = `100% — ${d.frames}/${d.frames}`;
-        const abs = (p) => new URL(p, location.origin).toString();
-        const openJson = abs("/" + d.file.replace(/^\/?/, ""));
-        const player = `/public/player.html?bake=${encodeURIComponent(openJson)}`;
-        logLine("done", `file=${d.file}`);
-        const linkBar = document.createElement("div");
-        linkBar.style.marginTop = "8px";
-        linkBar.innerHTML = `<a class="pill" href="${openJson}" target="_blank">Open JSON</a> &nbsp; <a class="pill" href="${player}" target="_blank">Open in Player</a>`;
-        $("statusText").appendChild(linkBar);
-      });
-      es.addEventListener("exit", e => {
-        const d = JSON.parse(e.data);
-        if (d.code !== 0) {
-          $("statusText").innerHTML = `Status: <span class="bad">Exited</span> (code=${d.code}, signal=${d.signal})`;
+    // persist settings
+    const KEY = 'hourglass.bake.settings.v5';
+    function saveSettings() {
+      const data = Object.fromEntries(new FormData(form).entries());
+      for (const el of form.querySelectorAll('input[type=checkbox]')) data[el.name] = el.checked;
+      localStorage.setItem(KEY, JSON.stringify(data));
+    }
+    function loadSettings() {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      try {
+        const d = JSON.parse(raw);
+        for (const k in d) {
+          if (form[k] == null) continue;
+          if (form[k].type === 'checkbox') form[k].checked = !!d[k];
+          else form[k].value = d[k];
         }
+      } catch {}
+    }
+    form.addEventListener('input', saveSettings);
+    loadSettings();
+
+    function appendLog(kind, obj) {
+      const t = new Date().toLocaleTimeString();
+      if (kind === 'log') {
+        logEl.textContent += `[${t}] ${obj.level ? '['+obj.level+'] ' : ''}${obj.msg}\n`;
+      } else {
+        logEl.textContent += `[${t}] [${kind}] ${JSON.stringify(obj)}\n`;
+      }
+      // cap to avoid mega long element
+      if (logEl.textContent.length > 100000) logEl.textContent = logEl.textContent.slice(-80000);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function startBake() {
+      statusEl.textContent = 'starting…';
+      status2.textContent = 'starting…';
+      links.innerHTML = '';
+      prog.value = 0; pct.textContent = '0%'; fframe.textContent = '0'; ftarget.textContent = '0';
+      logEl.textContent = '';
+
+      const data = Object.fromEntries(new FormData(form).entries());
+      for (const el of form.querySelectorAll('input[type=checkbox]')) data[el.name] = el.checked;
+
+      // coerce numbers
+      const NUMS = [
+        'duration','fps','grains','H','bulb','neck','r','k','wallThickness','tiltDeg','c1','c2','slat',
+        'bounce','friction','sleepVel','sleepMs','flushMaxSec','Q','sparseThresholdPx','maxSpeed',
+        'sleepOnlyBelowFrac','neckNoSleepBandPx','bottomSleepBandPx',
+        'outsideKillPad','outsideCullFrames','hardKillPad','strictKillPad',
+        'vibeAmpDeg','vibeHz','antiClogPeriod','rescueTopCount','antiClogMaxAmpDeg','antiClogPulseEvery','antiClogZoneY','antiClogPulseForce','antiClogDownBias',
+        'wallSlipPx','wallSlipVel','wallSlipKickF','wallSlipKickDownF','wallSlipCooldownMs','wallBiasBandPx','wallBiasInF','wallBiasDownF'
+      ];
+      for (const k of NUMS) if (data[k] != null && data[k] !== '') data[k] = Number(data[k]);
+
+      const res = await fetch('/api/bake', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+      if (!res.ok) {
+        statusEl.textContent = 'error'; status2.textContent = 'error';
+        appendLog('log', {level:'err', msg:`HTTP ${res.status}`});
+        return;
+      }
+      const { id } = await res.json();
+      statusEl.textContent = `connected #${id}`;
+      status2.textContent = `connected`;
+
+      const es = new EventSource(`/api/stream/${id}`);
+      es.addEventListener('hello', ev => appendLog('meta', JSON.parse(ev.data)));
+      es.addEventListener('meta', ev => appendLog('meta', JSON.parse(ev.data)));
+      es.addEventListener('log', ev => appendLog('log', JSON.parse(ev.data)));
+      es.addEventListener('progress', ev => {
+        const o = JSON.parse(ev.data);
+        const p = o.target > 0 ? o.frame / o.target : 0;
+        prog.max = 1; prog.value = p;
+        pct.textContent = Math.round(p*100) + '%';
+        fframe.textContent = o.frame; ftarget.textContent = o.target;
       });
-      es.onerror = (err) => {
-        logLine("es", "EventSource error; readyState=" + es.readyState);
-      };
-    }).catch(err => {
-      $("statusText").innerHTML = `Status: <span class="bad">Error</span>`;
-      logLine("error", String(err));
-    });
-  }
+      es.addEventListener('done', ev => {
+        const o = JSON.parse(ev.data);
+        appendLog('done', o);
+        statusEl.textContent = 'done'; status2.textContent = 'done';
+        const absJson = (o.file.startsWith('/') ? o.file : '/' + o.file);
+        links.innerHTML = `
+          <a href="${absJson}" target="_blank">Open JSON</a>
+          <a href="/public/player.html?bake=${encodeURIComponent(absJson)}" target="_blank">Open in Player</a>
+        `;
+        es.close();
+      });
+      es.addEventListener('exit', ev => appendLog('exit', JSON.parse(ev.data)));
+      es.onerror = () => appendLog('log', {level:'err', msg:`SSE error, readyState=${es.readyState}`});
+    }
 
-  $("btnStart").addEventListener("click", startBake);
-  $("btnIndex").addEventListener("click", () => window.open("/public/index.html", "_blank"));
-  $("btnReset").addEventListener("click", () => { localStorage.removeItem(KEY); loadSettings(); });
-  $("logClear").addEventListener("click", () => { $("log").textContent = ""; });
-  $("logCopy").addEventListener("click", async () => {
-    await navigator.clipboard.writeText($("log").textContent);
-  });
-
-  // autosave
-  document.addEventListener("change", (e) => {
-    if (fields.includes(e.target.id)) saveSettings();
-  });
-
-  loadSettings();
-})();
-</script>
+    startBtn.addEventListener('click', startBake);
+  </script>
 </body>
 </html>

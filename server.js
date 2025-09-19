@@ -18,7 +18,7 @@ app.use("/public", express.static(PUB_DIR, { extensions: ["html"] }));
 app.use("/bakes", express.static(BAKES_DIR));
 
 // In-memory task registry for SSE
-const tasks = new Map(); // id -> { backlog:[], clients:Set, proc }
+const tasks = new Map(); // id -> {backlog:[], clients:Set, proc}
 const makeEvent = (name, data) => `event: ${name}\n` + `data: ${JSON.stringify(data)}\n\n`;
 
 function addBacklog(id, name, payload) {
@@ -32,52 +32,42 @@ function addBacklog(id, name, payload) {
   }
 }
 
-// POST /api/bake — spawn bake.js with flags sourced ONLY from UI
 app.post("/api/bake", (req, res) => {
   try {
     const p = req.body || {};
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
 
-    const arg = (k, v) => v === undefined || v === null ? [] : ["--" + k, String(v)];
-    const flag = (k, on) => on ? ["--" + k] : [];
-
-    const args = [
-      "bake.js",
-      ...arg("id", id),
-      ...arg("duration", p.duration),
-      ...arg("fps", p.fps),
-      ...arg("grains", p.grains),
-      ...arg("full", p.full),
-      ...arg("neck", p.neck),
-      ...arg("H", p.H),
-      ...arg("bulb", p.bulb),
-      ...arg("r", p.r),
-      ...arg("bounce", p.bounce),
-      ...arg("friction", p.friction),
-      ...arg("tiltDeg", p.tiltDeg),
-      ...arg("c1", p.c1),
-      ...arg("c2", p.c2),
-      ...arg("slat", p.slat),
-      ...arg("wallThickness", p.wallThickness),
-      ...arg("sleepVel", p.sleepVel),
-      ...arg("sleepMs", p.sleepMs),
-      ...arg("sleepMode", p.sleepMode),
-      ...arg("flushMaxSec", p.flushMaxSec),
-      ...flag("noFlush", !!p.noFlush),
-      ...arg("outDir", "bakes"),
-      ...arg("outputMode", p.outputMode),
-      ...arg("Q", p.Q),
-      ...arg("outsideKillPad", p.outsideKillPad),
-      ...arg("outsideCullFrames", p.outsideCullFrames),
-      ...arg("maxSpeed", p.maxSpeed),
-      ...arg("wallSlipPx", p.wallSlipPx),
-      ...arg("wallSlipVel", p.wallSlipVel),
-      ...arg("wallSlipKickF", p.wallSlipKickF),
-      ...arg("wallSlipKickDownF", p.wallSlipKickDownF),
-      ...arg("wallSlipCooldownMs", p.wallSlipCooldownMs),
-      ...(p.unclogAssist ? ['--unclogAssist'] : []),
-      "--progress"
+    // keys that pass a value
+    const withValue = [
+      "duration","fps","grains","full","neck","H","bulb","r","k",
+      "bounce","friction","tiltDeg","c1","c2","slat",
+      "wallThickness","wallMode",
+      "sleepVel","sleepMs","sleepMode",
+      "flushMaxSec","outputMode","Q","sparseThresholdPx",
+      "maxSpeed",
+      // sleep bands / culling
+      "sleepOnlyBelowFrac","neckNoSleepBandPx","bottomSleepBandPx",
+      "outsideKillPad","outsideCullFrames","hardKillPad","strictKillPad",
+      // unclog / pulses
+      "vibeAmpDeg","vibeHz","antiClogPeriod","rescueTopCount","antiClogMaxAmpDeg",
+      "antiClogPulseEvery","antiClogZoneY","antiClogPulseForce","antiClogDownBias",
+      // wall slip / bias
+      "wallSlipPx","wallSlipVel","wallSlipKickF","wallSlipKickDownF","wallSlipCooldownMs",
+      "wallBiasBandPx","wallBiasInF","wallBiasDownF"
     ];
+    // flags
+    const flags = ["noFlush","unclogAssist","pulseBottomToo"];
+
+    const args = ["bake.js", "--id", id];
+    for (const k of withValue) {
+      if (p[k] !== undefined && p[k] !== null && p[k] !== "") {
+        args.push("--"+k, String(p[k]));
+      }
+    }
+    for (const f of flags) {
+      if (p[f]) args.push("--"+f);
+    }
+    args.push("--outDir","bakes","--progress");
 
     const node = process.execPath;
     const child = spawn(node, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -139,14 +129,23 @@ app.get("/api/stream/:id", (req, res) => {
   res.flushHeaders?.();
 
   let t = tasks.get(id);
-  if (!t) { t = { backlog: [], clients: new Set(), proc: null }; tasks.set(id, t); }
+  if (!t) {
+    t = { backlog: [], clients: new Set(), proc: null };
+    tasks.set(id, t);
+  }
   t.clients.add(res);
 
   res.write(makeEvent("hello", { id, now: Date.now() }));
   for (const evt of t.backlog) res.write(makeEvent(evt.name, evt.data));
 
-  const hb = setInterval(() => { try { res.write(makeEvent("ping", { t: Date.now() })); } catch {} }, 15_000);
-  req.on("close", () => { clearInterval(hb); t.clients.delete(res); });
+  const hb = setInterval(() => {
+    try { res.write(makeEvent("ping", { t: Date.now() })); } catch {}
+  }, 15_000);
+
+  req.on("close", () => {
+    clearInterval(hb);
+    t.clients.delete(res);
+  });
 });
 
 app.get("/api/index", (req, res) => {
@@ -159,7 +158,8 @@ app.get("/api/index", (req, res) => {
   }
 });
 
-app.get("/", (req, res) => res.redirect("/public/baker.html"));
+// Serve convenience entry points
+app.get("/", (req, res) => res.redirect("/public/index.html"));
 app.use("/", express.static(PUB_DIR, { extensions: ["html"] }));
 
 app.listen(PORT, () => {
