@@ -290,8 +290,7 @@
       } else {
         logEl.textContent += `[${t}] [${kind}] ${JSON.stringify(obj)}\n`;
       }
-      // cap to avoid mega long element
-      if (logEl.textContent.length > 100000) logEl.textContent = logEl.textContent.slice(-80000);
+      if (logEl.textContent.length > 80000) logEl.textContent = logEl.textContent.slice(-60000);
       logEl.scrollTop = logEl.scrollHeight;
     }
 
@@ -305,7 +304,6 @@
       const data = Object.fromEntries(new FormData(form).entries());
       for (const el of form.querySelectorAll('input[type=checkbox]')) data[el.name] = el.checked;
 
-      // coerce numbers
       const NUMS = [
         'duration','fps','grains','H','bulb','neck','r','k','wallThickness','tiltDeg','c1','c2','slat',
         'bounce','friction','sleepVel','sleepMs','flushMaxSec','Q','sparseThresholdPx','maxSpeed',

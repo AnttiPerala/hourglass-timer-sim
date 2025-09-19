@@ -1,5 +1,17 @@
 [
   {
+    "file": "bakes/hourglass_10s_neck18_g2000_capsule_sparse_Q32_mfr5ihdi-uaha2a.json",
+    "label": "hourglass_10s_neck18_g2000_capsule_sparse_Q32_mfr5ihdi-uaha2a",
+    "duration": 10,
+    "fps": 60,
+    "grains": 2000,
+    "neck": 18,
+    "c1": 0,
+    "c2": 0,
+    "lastCrossFrame": 522,
+    "date": "2025-09-19T18:06:41.228Z"
+  },
+  {
     "file": "bakes/hourglass_10s_neck18_g2000_capsule_sparse_Q32_mfqxu0m6-2nffvf.json",
     "label": "hourglass_10s_neck18_g2000_capsule_sparse_Q32_mfqxu0m6-2nffvf",
     "duration": 10,
