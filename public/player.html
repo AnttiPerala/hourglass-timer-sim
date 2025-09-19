@@ -22,6 +22,7 @@
     input, select { background:#0f151e; color:var(--ink); border:1px solid #273446; border-radius:6px; padding:4px 6px; }
     #warn { color:#ffb870; }
     .muted { color:var(--sub); }
+    label { font-size:13px; color:var(--sub); }
   </style>
 </head>
 <body>
@@ -48,8 +49,8 @@
 
     <div class="row">
       <span>Align last-cross to (s):</span>
-      <input id="alignSec" type="number" placeholder="e.g. 60" step="1" min="1" style="width:90px">
-      <button id="resetAlign" class="chip">Reset alignment</button>
+      <input id="alignSec" type="number" placeholder="e.g. 60" step="1" min="1" style="width:90px" title="Scale playback so lastCross occurs at this second mark">
+      <button id="resetAlign" class="chip" title="Restore original fps">Reset alignment</button>
       <span id="alignInfo" class="muted"></span>
     </div>
 
@@ -61,6 +62,9 @@
       <span>Pan&nbsp;Y:</span>
       <input id="panY" type="range" min="-100" max="100" step="1" value="0" title="Vertical pan in % of H (negative moves up, positive down)">
       <span id="panYLbl" class="chip">0%</span>
+      <span style="width:12px"></span>
+      <label for="grainColor">Grain color:</label>
+      <input id="grainColor" type="color" value="#f1f4ff" title="Pick the grain fill color">
     </div>
 
     <div class="row">
@@ -82,6 +86,7 @@
   const leftCross = $('#leftCross'), leftEnd = $('#leftEnd'), warn = $('#warn');
   const zoomCtl = $('#zoom'), zoomLbl = $('#zoomLbl');
   const panYCtl = $('#panY'), panYLbl = $('#panYLbl');
+  const grainColorInput = $('#grainColor');
 
   let meta = null, frames = 0, grains = 0, baseFPS = 60, lastCrossFrame = null, Q = 32;
   let mode = "sparse"; // or dense
@@ -89,9 +94,10 @@
   let alive = [];
   let anim = null, cur = 0, effectiveFPS = 60, lastTick = 0, frameAcc = 0;
 
-  const SENT = 65535; // death sentinel
-  let viewZoom = 1.0; // 1.0 = fit scale; multiplied by slider factor
-  let panYFrac = 0.0; // fraction of H (-1..+1), positive pans down
+  const SENT = 65535; // death sentinel from baker
+  let viewZoom = 1.0;     // multiplies fitted scale
+  let panYFrac = 0.0;     // fraction of H (-1..+1), positive pans down
+  let grainColor = '#f1f4ff';
 
   const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
   function fitScale() {
@@ -287,7 +293,7 @@
     drawWalls();
 
     const rad = Math.max(1, Math.round(meta.r || 2));
-    ctx.fillStyle = "#f1f4ff";
+    ctx.fillStyle = grainColor;
     ctx.beginPath();
     for (let g=0; g<grains; g++){
       if (mode==='sparse' && !alive[g]) continue;
@@ -307,14 +313,13 @@
     updateClocks(i);
   }
 
-  // --- playback with frame accumulator (works for any effectiveFPS) ---
+  // --- playback with accumulator (robust at any effectiveFPS) ---
   function tick(ts) {
     if (!reader) return;
     if (!lastTick) lastTick = ts;
     let dt = (ts - lastTick) / 1000;
     lastTick = ts;
-    // clamp very long tabs to avoid big jumps
-    if (dt > 0.25) dt = 0.25;
+    if (dt > 0.25) dt = 0.25; // tab sleep clamp
 
     frameAcc += effectiveFPS * dt;
     if (frameAcc >= 1) {
@@ -328,7 +333,18 @@
   }
   function play() { stop(); lastTick = 0; frameAcc = 0; anim = requestAnimationFrame(tick); }
   function stop() { if (anim) cancelAnimationFrame(anim); anim = null; }
-  playBtn.onclick = () => play();
+
+  // UI wiring
+  playBtn.onclick = () => {
+    if (!reader) return;
+    // If we're at the end, restart from the beginning
+    if (frames > 0 && cur >= frames - 1) {
+      cur = 0;
+      reader.seek(0);
+      drawFrame(0);
+    }
+    play();
+  };
   pauseBtn.onclick = () => stop();
   slider.oninput = () => { stop(); reader.seek(Number(slider.value)); cur = Number(slider.value); drawFrame(cur); };
   jumpBtn.onclick = () => { if (lastCrossFrame!=null){ stop(); cur = lastCrossFrame; reader.seek(cur); drawFrame(cur);} };
@@ -345,7 +361,7 @@
   function computeEffectiveFPS() {
     if (alignSec!=null && lastCrossFrame!=null && lastCrossFrame>0) {
       const lastCrossSec = lastCrossFrame / baseFPS;
-      const factor = lastCrossSec / alignSec;            // < 1 speeds down, > 1 speeds up
+      const factor = lastCrossSec / alignSec;            // <1 slower, >1 faster
       effectiveFPS = baseFPS * factor;
       if (!Number.isFinite(effectiveFPS) || effectiveFPS <= 0) effectiveFPS = baseFPS;
       alignInfo.textContent = `Playback scales so lastCross ≈ ${alignSec.toFixed(2)} s (eff FPS: ${effectiveFPS.toFixed(2)}).`;
@@ -360,14 +376,12 @@
     if (lastCrossFrame!=null) {
       const secsLeft = Math.max(0, (lastCrossFrame - i) / effectiveFPS);
       leftCross.textContent = secsLeft.toFixed(1);
-    } else {
-      leftCross.textContent = '—';
-    }
+    } else leftCross.textContent = '—';
     const endLeft = Math.max(0, (frames - 1 - i) / effectiveFPS);
     leftEnd.textContent = new Date(endLeft * 1000).toISOString().substr(14, 5);
   }
 
-  // Zoom & Pan controls
+  // Zoom, Pan, Color
   function applyZoomUI() {
     const z = Number(zoomCtl.value) || 100;
     viewZoom = z / 100;
@@ -380,8 +394,13 @@
     panYLbl.textContent = `${p}%`;
     drawFrame(cur||0);
   }
+  function applyGrainColor() {
+    grainColor = grainColorInput.value || '#f1f4ff';
+    drawFrame(cur||0);
+  }
   zoomCtl.addEventListener('input', applyZoomUI);
   panYCtl.addEventListener('input', applyPanUI);
+  grainColorInput.addEventListener('input', applyGrainColor);
 
   // resize canvas to devicePixelRatio
   function resizeCanvas() {
@@ -397,6 +416,7 @@
   // init labels once
   applyZoomUI();
   applyPanUI();
+  applyGrainColor();
   </script>
 </body>
 </html>

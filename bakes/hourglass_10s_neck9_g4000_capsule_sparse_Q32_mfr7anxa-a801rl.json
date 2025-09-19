@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "duration": 10,
+    "fps": 240,
+    "grains": 4000,
+    "full": 1,
+    "neck": 9,
+    "H": 500,
+    "bulb": 220,
+    "r": 3,
+    "bounce": 0.12,
+    "friction": 0.02,
+    "tiltDeg": 0,
+    "slat": 0,
+    "c1": 0,
+    "c2": 0,
+    "Q": 32,
+    "mode": "sparse",
+    "wallMode": "capsule",
+    "wallThickness": 15,
+    "sleepOnlyBelowFrac": 0.58,
+    "neckNoSleepBandPx": 80,
+    "bottomSleepBandPx": 175,
+    "outsideKillPad": 0.5,
+    "outsideCullFrames": 2,
+    "hardKillPad": 0.2,
+    "strictKillPad": 0.15
+  },
+  "frames": 2400,
+  "fps": 240,
+  "lastCrossFrame": null,
+  "sbin": "/bakes/hourglass_10s_neck9_g4000_capsule_sparse_Q32_mfr7anxa-a801rl.sbin"
+}
