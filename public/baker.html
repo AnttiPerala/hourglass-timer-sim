@@ -12,20 +12,37 @@
     header { padding: 12px 16px; background:#10151b; border-bottom:1px solid #1c2430; display:flex; align-items:center; gap:16px; position:sticky; top:0; z-index:2; }
     h1 { font-size: 18px; margin: 0; font-weight: 600; }
     main { display:grid; grid-template-columns: 440px 1fr; gap: 16px; padding: 16px; }
-    fieldset { border:1px solid var(--line); border-radius:10px; padding:12px; margin:0 0 12px; }
+    fieldset { border:1px solid var(--line); border-radius:10px; padding:12px; margin:0; }
     legend { padding: 0 6px; color:var(--muted); }
     label { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:6px 0; }
     label span { color:#c8d7ea; font-size:13px; }
     input, select { width: 150px; padding:6px 8px; background:var(--panel); color:var(--ink); border:1px solid #273142; border-radius:8px; }
     input[type="checkbox"] { width:auto; }
-    .row { display:flex; gap:8px; align-items:center; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .btn { background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:600; cursor:pointer; }
     .muted { color:var(--muted); font-size:13px; }
     #log { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px; height:340px; overflow:auto; white-space:pre-wrap; word-break:break-word; }
     #progressWrap { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
     progress { width:100%; height:16px; }
     a { color:#9ad1ff; }
-    details summary { cursor:pointer; color:#c8d7ea; }
+    .btn.secondary{background:#273142}
+    .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+    .danger{color:#ff6b6b}
+
+    /* Collapsible sections */
+    details.sec { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#0e141b; }
+    details.sec + details.sec { margin-top:12px; }
+    details.sec > summary {
+      list-style:none; cursor:pointer; user-select:none; padding:10px 12px;
+      background:#0f151e; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px;
+      color:#d6e3f7; font-weight:600;
+    }
+    details.sec > summary::before {
+      content: "▸"; transition: transform .15s ease; display:inline-block;
+    }
+    details.sec[open] > summary::before { transform: rotate(90deg); }
+    details.sec .sec-body { padding:12px; }
+    details.sec .note { padding:8px 12px; color:var(--muted); }
   </style>
 </head>
 <body>
@@ -33,7 +50,7 @@
     <h1>Hourglass Baker</h1>
     <div class="row">
       <button id="startBtn" class="btn">Start bake</button>
-      <a href="/public/index.html" class="btn" style="background:#273142">List bakes</a>
+      <a href="/public/index.html" class="btn secondary">List bakes</a>
     </div>
     <div style="margin-left:auto" class="muted" id="status">idle</div>
   </header>
@@ -41,198 +58,249 @@
   <main>
     <section>
       <form id="form">
-        <fieldset>
-          <legend>Timing & Output</legend>
-          <label title="Length of simulation in seconds.">
-            <span>duration (s)</span><input name="duration" type="number" step="1" min="1" value="10">
-          </label>
-          <label title="Bake frames per second. Higher = smoother + heavier.">
-            <span>fps</span><input name="fps" type="number" step="1" min="1" value="60">
-          </label>
-          <label title="Number of grains (particles).">
-            <span>grains</span><input name="grains" type="number" step="1" min="1" value="800">
-          </label>
-          <label title="dense: write every grain every frame. sparse: write only changed grains (smaller files).">
-            <span>outputMode</span>
-            <select name="outputMode">
-              <option value="sparse" selected>sparse</option>
-              <option value="dense">dense</option>
-            </select>
-          </label>
-          <label title="Quantization factor for binary output; higher = finer (and bigger files). e.g., 16–64.">
-            <span>quantization Q</span><input name="Q" type="number" step="1" min="8" value="32">
-          </label>
-          <label title="Sparse write threshold in pixels. Any grain that moves more than this (or on frame 0) is written.">
-            <span>sparseThresholdPx</span><input name="sparseThresholdPx" type="number" step="0.01" min="0" value="0.03125">
-          </label>
-        </fieldset>
 
-        <fieldset>
-          <legend>Geometry</legend>
-          <label title="Half-height of each bulb (px).">
-            <span>H (px)</span><input name="H" type="number" step="1" min="100" value="500">
-          </label>
-          <label title="Half-width of bulb (px).">
-            <span>bulb (px)</span><input name="bulb" type="number" step="1" min="50" value="220">
-          </label>
-          <label title="Neck opening width (px).">
-            <span>neck (px)</span><input name="neck" type="number" step="1" min="6" value="18">
-          </label>
-          <label title="Grain radius (px).">
-            <span>r (px)</span><input name="r" type="number" step="0.5" min="0.5" value="2">
-          </label>
-          <label title="Wall thickness (px). 0 = auto. Thickness grows outward only.">
-            <span>wallThickness</span><input name="wallThickness" type="number" step="1" min="0" value="0">
-          </label>
-          <label title="Choose wall construction. 'capsule' uses overlapping circles for seam-free walls (higher CPU).">
-            <span>wallMode</span>
-            <select name="wallMode">
-              <option value="rect">rectangles (fast)</option>
-              <option value="capsule" selected>capsule (seam-free)</option>
-            </select>
-          </label>
-          <label title="Curve coefficient: roundness shaping; small tweaks recommended.">
-            <span>c1</span><input name="c1" type="number" step="0.05" value="0.0">
-          </label>
-          <label title="Curve coefficient: adds S-curve curvature; small tweaks recommended.">
-            <span>c2</span><input name="c2" type="number" step="0.05" value="0.0">
-          </label>
-          <label title="Optional horizontal divider at the neck (px). 0 = none.">
-            <span>slat (px)</span><input name="slat" type="number" step="1" min="0" value="0">
-          </label>
-          <label title="Tilt in degrees; only changes gravity direction, not visuals.">
-            <span>tilt (deg)</span><input name="tiltDeg" type="number" step="0.1" value="0">
-          </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Material</legend>
-          <label title="Restitution (bounciness) 0..1.">
-            <span>bounce</span><input name="bounce" type="number" step="0.01" min="0" max="1" value="0.12">
-          </label>
-          <label title="Friction coefficient 0..1. Lower = more slip.">
-            <span>friction</span><input name="friction" type="number" step="0.005" min="0" max="1" value="0.02">
-          </label>
-          <label title="Clamp grain speeds to this (px/s) for stability.">
-            <span>maxSpeed</span><input name="maxSpeed" type="number" step="1" min="1" value="24">
-          </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Sleep & Flush</legend>
-          <label title="Only grains below this speed (px/s) start accumulating sleep time.">
-            <span>sleepVel</span><input name="sleepVel" type="number" step="0.1" min="0" value="2">
-          </label>
-          <label title="How long (ms) a slow grain must remain slow before freezing/sleeping/removal.">
-            <span>sleepMs</span><input name="sleepMs" type="number" step="50" min="0" value="500">
-          </label>
-          <label title="What to do when a grain qualifies for sleep. 'static' keeps it as a blocker.">
-            <span>sleepMode</span>
-            <select name="sleepMode">
-              <option value="static" selected>static</option>
-              <option value="sleep">sleep</option>
-              <option value="remove">remove</option>
-            </select>
-          </label>
-          <label title="Only allow sleep deep in the bottom bulb (fraction of H). Combined with the bands below.">
-            <span>sleepOnlyBelowFrac</span><input name="sleepOnlyBelowFrac" type="number" step="0.01" min="0" max="1" value="0.58">
-          </label>
-          <label title="No-sleep band around the neck (px). Within ±this, grains never sleep.">
-            <span>neckNoSleepBandPx</span><input name="neckNoSleepBandPx" type="number" step="1" min="0" value="80">
-          </label>
-          <label title="Only allow sleep within this distance from the bottom (px).">
-            <span>bottomSleepBandPx</span><input name="bottomSleepBandPx" type="number" step="1" min="0" value="175">
-          </label>
-          <label title="Stop at target frames even if top bulb hasn't emptied.">
-            <span>noFlush</span><input name="noFlush" type="checkbox">
-          </label>
-          <label title="If flushing is allowed, after target frames keep going at most this many seconds.">
-            <span>flushMaxSec</span><input name="flushMaxSec" type="number" step="1" min="1" value="15">
-          </label>
-        </fieldset>
-
-        <details>
-          <summary>Anti-Clog & Nudges</summary>
-          <fieldset>
-            <label title="Enable small gravity wobble and pulses to avoid arching at the neck.">
-              <span>unclogAssist</span><input name="unclogAssist" type="checkbox" checked>
-            </label>
-            <label title="Base wobble amplitude (deg).">
-              <span>vibeAmpDeg</span><input name="vibeAmpDeg" type="number" step="0.05" value="0.25">
-            </label>
-            <label title="Wobble frequency (Hz).">
-              <span>vibeHz</span><input name="vibeHz" type="number" step="0.1" value="2.0">
-            </label>
-            <label title="Seconds of stalled flow before pulses kick in.">
-              <span>antiClogPeriod</span><input name="antiClogPeriod" type="number" step="0.05" value="0.30">
-            </label>
-            <label title="If top grain count ≤ this, use stronger assists.">
-              <span>rescueTopCount</span><input name="rescueTopCount" type="number" step="1" value="25">
-            </label>
-            <label title="Max wobble amplitude when fully engaged (deg).">
-              <span>antiClogMaxAmpDeg</span><input name="antiClogMaxAmpDeg" type="number" step="0.1" value="4.5">
-            </label>
-            <label title="Pulse period (s). Smaller = more frequent.">
-              <span>antiClogPulseEvery</span><input name="antiClogPulseEvery" type="number" step="0.01" value="0.12">
-            </label>
-            <label title="Vertical zone around neck to pulse (px).">
-              <span>antiClogZoneY</span><input name="antiClogZoneY" type="number" step="1" value="30">
-            </label>
-            <label title="Also pulse below the neck (unchecked = only above).">
-              <span>pulseBottomToo</span><input name="pulseBottomToo" type="checkbox">
-            </label>
-            <label title="Pulse force magnitude.">
-              <span>antiClogPulseForce</span><input name="antiClogPulseForce" type="number" step="0.000001" value="0.00001">
-            </label>
-            <label title="Downward bias added to pulses above the neck.">
-              <span>antiClogDownBias</span><input name="antiClogDownBias" type="number" step="0.000001" value="0.000004">
-            </label>
-          </fieldset>
-
-          <fieldset>
-            <legend>Wall Slip & Bias</legend>
-            <label title="How close to the wall (px) to trigger a slip nudge.">
-              <span>wallSlipPx</span><input name="wallSlipPx" type="number" step="0.1" value="1.2">
-            </label>
-            <label title="If speed below this (px/s), allow a slip nudge.">
-              <span>wallSlipVel</span><input name="wallSlipVel" type="number" step="0.05" value="0.25">
-            </label>
-            <label title="Horizontal inward force for slip nudge.">
-              <span>wallSlipKickF</span><input name="wallSlipKickF" type="number" step="0.000001" value="0.00012">
-            </label>
-            <label title="Downward force for slip nudge.">
-              <span>wallSlipKickDownF</span><input name="wallSlipKickDownF" type="number" step="0.000001" value="0.00004">
-            </label>
-            <label title="Cooldown between slip nudges (ms).">
-              <span>wallSlipCooldownMs</span><input name="wallSlipCooldownMs" type="number" step="10" value="250">
-            </label>
-            <label title="Band distance from wall where soft inward/down bias is applied.">
-              <span>wallBiasBandPx</span><input name="wallBiasBandPx" type="number" step="1" value="14">
-            </label>
-            <label title="Inward bias magnitude.">
-              <span>wallBiasInF</span><input name="wallBiasInF" type="number" step="0.000001" value="0.00016">
-            </label>
-            <label title="Downward bias magnitude.">
-              <span>wallBiasDownF</span><input name="wallBiasDownF" type="number" step="0.000001" value="0.00006">
-            </label>
-          </fieldset>
-
-          <fieldset>
-            <legend>Outside Culling</legend>
-            <label title="Immediate kill once center exceeds inner wall by this many px (strict small tolerance).">
-              <span>strictKillPad</span><input name="strictKillPad" type="number" step="0.01" value="0.15">
-            </label>
-            <label title="Hard kill if beyond radius + pad (px).">
-              <span>hardKillPad</span><input name="hardKillPad" type="number" step="0.01" value="0.2">
-            </label>
-            <label title="Debounced kill if beyond radius + pad (px).">
-              <span>outsideKillPad</span><input name="outsideKillPad" type="number" step="0.01" value="0.5">
-            </label>
-            <label title="Frames outside before debounced kill triggers.">
-              <span>outsideCullFrames</span><input name="outsideCullFrames" type="number" step="1" value="2">
-            </label>
-          </fieldset>
+        <!-- Timing & Output -->
+        <details class="sec" data-sec="timingOutput">
+          <summary>Timing & Output</summary>
+          <div class="sec-body">
+            <fieldset>
+              <label title="Length of simulation in seconds.">
+                <span>duration (s)</span><input name="duration" type="number" step="1" min="1" value="10">
+              </label>
+              <label title="Bake frames per second. Higher = smoother + heavier.">
+                <span>fps</span><input name="fps" type="number" step="1" min="1" value="60">
+              </label>
+              <label title="Number of grains (particles).">
+                <span>grains</span><input name="grains" type="number" step="1" min="1" value="800">
+              </label>
+              <label title="dense: write every grain every frame. sparse: write only changed grains (smaller files).">
+                <span>outputMode</span>
+                <select name="outputMode">
+                  <option value="sparse" selected>sparse</option>
+                  <option value="dense">dense</option>
+                </select>
+              </label>
+              <label title="Quantization factor for binary output; higher = finer (and bigger files). e.g., 16–64.">
+                <span>quantization Q</span><input name="Q" type="number" step="1" min="8" value="32">
+              </label>
+              <label title="Sparse write threshold in pixels. Any grain that moves more than this (or on frame 0) is written.">
+                <span>sparseThresholdPx</span><input name="sparseThresholdPx" type="number" step="0.01" min="0" value="0.03125">
+              </label>
+            </fieldset>
+          </div>
         </details>
+
+        <!-- Geometry -->
+        <details class="sec" data-sec="geometry">
+          <summary>Geometry</summary>
+          <div class="sec-body">
+            <fieldset>
+              <label title="Half-height of each bulb (px).">
+                <span>H (px)</span><input name="H" type="number" step="1" min="100" value="500">
+              </label>
+              <label title="Half-width of bulb (px).">
+                <span>bulb (px)</span><input name="bulb" type="number" step="1" min="50" value="220">
+              </label>
+              <label title="Neck opening width (px).">
+                <span>neck (px)</span><input name="neck" type="number" step="1" min="6" value="18">
+              </label>
+              <label title="Grain radius (px).">
+                <span>r (px)</span><input name="r" type="number" step="0.5" min="0.5" value="2">
+              </label>
+              <label title="Wall thickness (px). 0 = auto. Thickness grows outward only.">
+                <span>wallThickness</span><input name="wallThickness" type="number" step="1" min="0" value="0">
+              </label>
+              <label title="Choose wall construction. 'capsule' uses overlapping circles for seam-free walls (higher CPU).">
+                <span>wallMode</span>
+                <select name="wallMode">
+                  <option value="rect">rectangles (fast)</option>
+                  <option value="capsule" selected>capsule (seam-free)</option>
+                </select>
+              </label>
+              <label title="Curve coefficient: roundness shaping; small tweaks recommended.">
+                <span>c1</span><input name="c1" type="number" step="0.05" value="0.0">
+              </label>
+              <label title="Curve coefficient: adds S-curve curvature; small tweaks recommended.">
+                <span>c2</span><input name="c2" type="number" step="0.05" value="0.0">
+              </label>
+              <label title="Optional horizontal divider at the neck (px). 0 = none.">
+                <span>slat (px)</span><input name="slat" type="number" step="1" min="0" value="0">
+              </label>
+              <label title="Tilt in degrees; only changes gravity direction, not visuals.">
+                <span>tilt (deg)</span><input name="tiltDeg" type="number" step="0.1" value="0">
+              </label>
+            </fieldset>
+          </div>
+        </details>
+
+        <!-- Material -->
+        <details class="sec" data-sec="material">
+          <summary>Material</summary>
+          <div class="sec-body">
+            <fieldset>
+              <label title="Restitution (bounciness) 0..1.">
+                <span>bounce</span><input name="bounce" type="number" step="0.01" min="0" max="1" value="0.12">
+              </label>
+              <label title="Friction coefficient 0..1. Lower = more slip.">
+                <span>friction</span><input name="friction" type="number" step="0.005" min="0" max="1" value="0.02">
+              </label>
+              <label title="Clamp grain speeds to this (px/s) for stability.">
+                <span>maxSpeed</span><input name="maxSpeed" type="number" step="1" min="1" value="24">
+              </label>
+            </fieldset>
+          </div>
+        </details>
+
+        <!-- Sleep & Flush -->
+        <details class="sec" data-sec="sleepFlush">
+          <summary>Sleep & Flush</summary>
+          <div class="sec-body">
+            <fieldset>
+              <label title="Only grains below this speed (px/s) start accumulating sleep time.">
+                <span>sleepVel</span><input name="sleepVel" type="number" step="0.1" min="0" value="2">
+              </label>
+              <label title="How long (ms) a slow grain must remain slow before freezing/sleeping/removal.">
+                <span>sleepMs</span><input name="sleepMs" type="number" step="50" min="0" value="500">
+              </label>
+              <label title="What to do when a grain qualifies for sleep. 'static' keeps it as a blocker.">
+                <span>sleepMode</span>
+                <select name="sleepMode">
+                  <option value="static" selected>static</option>
+                  <option value="sleep">sleep</option>
+                  <option value="remove">remove</option>
+                </select>
+              </label>
+              <label title="Only allow sleep deep in the bottom bulb (fraction of H). Combined with the bands below.">
+                <span>sleepOnlyBelowFrac</span><input name="sleepOnlyBelowFrac" type="number" step="0.01" min="0" max="1" value="0.58">
+              </label>
+              <label title="No-sleep band around the neck (px). Within ±this, grains never sleep.">
+                <span>neckNoSleepBandPx</span><input name="neckNoSleepBandPx" type="number" step="1" min="0" value="80">
+              </label>
+              <label title="Only allow sleep within this distance from the bottom (px).">
+                <span>bottomSleepBandPx</span><input name="bottomSleepBandPx" type="number" step="1" min="0" value="175">
+              </label>
+              <label title="Stop at target frames even if top bulb hasn't emptied.">
+                <span>noFlush</span><input name="noFlush" type="checkbox">
+              </label>
+              <label title="If flushing is allowed, after target frames keep going at most this many seconds.">
+                <span>flushMaxSec</span><input name="flushMaxSec" type="number" step="1" min="1" value="15">
+              </label>
+            </fieldset>
+          </div>
+        </details>
+
+        <!-- Anti-Clog & Nudges -->
+        <details class="sec" data-sec="anticlog">
+          <summary>Anti-clog & Nudges</summary>
+          <div class="sec-body">
+            <fieldset>
+              <label title="Enable small gravity wobble and pulses to avoid arching at the neck.">
+                <span>unclogAssist</span><input name="unclogAssist" type="checkbox" checked>
+              </label>
+              <label title="Base wobble amplitude (deg).">
+                <span>vibeAmpDeg</span><input name="vibeAmpDeg" type="number" step="0.05" value="0.25">
+              </label>
+              <label title="Wobble frequency (Hz).">
+                <span>vibeHz</span><input name="vibeHz" type="number" step="0.1" value="2.0">
+              </label>
+              <label title="Seconds of stalled flow before pulses kick in.">
+                <span>antiClogPeriod</span><input name="antiClogPeriod" type="number" step="0.05" value="0.30">
+              </label>
+              <label title="If top grain count ≤ this, use stronger assists.">
+                <span>rescueTopCount</span><input name="rescueTopCount" type="number" step="1" value="25">
+              </label>
+              <label title="Max wobble amplitude when fully engaged (deg).">
+                <span>antiClogMaxAmpDeg</span><input name="antiClogMaxAmpDeg" type="number" step="0.1" value="4.5">
+              </label>
+              <label title="Pulse period (s). Smaller = more frequent.">
+                <span>antiClogPulseEvery</span><input name="antiClogPulseEvery" type="number" step="0.01" value="0.12">
+              </label>
+              <label title="Vertical zone around neck to pulse (px).">
+                <span>antiClogZoneY</span><input name="antiClogZoneY" type="number" step="1" value="30">
+              </label>
+              <label title="Also pulse below the neck (unchecked = only above).">
+                <span>pulseBottomToo</span><input name="pulseBottomToo" type="checkbox">
+              </label>
+              <label title="Pulse force magnitude.">
+                <span>antiClogPulseForce</span><input name="antiClogPulseForce" type="number" step="0.000001" value="0.00001">
+              </label>
+              <label title="Downward bias added to pulses above the neck.">
+                <span>antiClogDownBias</span><input name="antiClogDownBias" type="number" step="0.000001" value="0.000004">
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Wall Slip & Bias</legend>
+              <label title="How close to the wall (px) to trigger a slip nudge.">
+                <span>wallSlipPx</span><input name="wallSlipPx" type="number" step="0.1" value="1.2">
+              </label>
+              <label title="If speed below this (px/s), allow a slip nudge.">
+                <span>wallSlipVel</span><input name="wallSlipVel" type="number" step="0.05" value="0.25">
+              </label>
+              <label title="Horizontal inward force for slip nudge.">
+                <span>wallSlipKickF</span><input name="wallSlipKickF" type="number" step="0.000001" value="0.00012">
+              </label>
+              <label title="Downward force for slip nudge.">
+                <span>wallSlipKickDownF</span><input name="wallSlipKickDownF" type="number" step="0.000001" value="0.00004">
+              </label>
+              <label title="Cooldown between slip nudges (ms).">
+                <span>wallSlipCooldownMs</span><input name="wallSlipCooldownMs" type="number" step="10" value="250">
+              </label>
+              <label title="Band distance from wall where soft inward/down bias is applied.">
+                <span>wallBiasBandPx</span><input name="wallBiasBandPx" type="number" step="1" value="14">
+              </label>
+              <label title="Inward bias magnitude.">
+                <span>wallBiasInF</span><input name="wallBiasInF" type="number" step="0.000001" value="0.00016">
+              </label>
+              <label title="Downward bias magnitude.">
+                <span>wallBiasDownF</span><input name="wallBiasDownF" type="number" step="0.000001" value="0.00006">
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Outside Culling</legend>
+              <label title="Immediate kill once center exceeds inner wall by this many px (strict small tolerance).">
+                <span>strictKillPad</span><input name="strictKillPad" type="number" step="0.01" value="0.15">
+              </label>
+              <label title="Hard kill if beyond radius + pad (px).">
+                <span>hardKillPad</span><input name="hardKillPad" type="number" step="0.01" value="0.2">
+              </label>
+              <label title="Debounced kill if beyond radius + pad (px).">
+                <span>outsideKillPad</span><input name="outsideKillPad" type="number" step="0.01" value="0.5">
+              </label>
+              <label title="Frames outside before debounced kill triggers.">
+                <span>outsideCullFrames</span><input name="outsideCullFrames" type="number" step="1" value="2">
+              </label>
+            </fieldset>
+          </div>
+        </details>
+
+        <!-- Presets -->
+        <details class="sec" data-sec="presets">
+          <summary>Presets</summary>
+          <div class="sec-body">
+            <fieldset>
+              <label title="Choose a saved preset to load (stored in public/presets.json).">
+                <span>Saved presets</span>
+                <div class="row" style="width:150px;flex:1;justify-content:flex-end">
+                  <select id="presetSelect" style="min-width:220px"></select>
+                  <button id="loadPreset" type="button" class="btn secondary">Load</button>
+                  <button id="deletePreset" type="button" class="btn ghost"><span class="danger">Delete</span></button>
+                </div>
+              </label>
+              <label title="Name for a new or existing preset. If the name exists, you can overwrite it.">
+                <span>Preset name</span>
+                <div class="row" style="width:150px;flex:1;justify-content:flex-end">
+                  <input id="presetName" type="text" placeholder="e.g. Smooth 60fps funnel" style="min-width:220px" />
+                  <button id="savePreset" type="button" class="btn">Save</button>
+                  <button id="overwritePreset" type="button" class="btn secondary">Overwrite</button>
+                </div>
+              </label>
+              <div class="muted" id="presetInfo" style="margin-top:4px">—</div>
+            </fieldset>
+          </div>
+        </details>
+
       </form>
     </section>
 
@@ -261,12 +329,32 @@
     const ftarget = $('#ftarget');
     const links = $('#links');
 
-    // persist settings
+    /* ---------- Remember section open/closed state ---------- */
+    const SEC_KEY = 'hourglass.baker.sections.v1';
+    function loadSecState(){ try{ return JSON.parse(localStorage.getItem(SEC_KEY)||'{}'); }catch{return{}} }
+    function saveSecState(map){ localStorage.setItem(SEC_KEY, JSON.stringify(map)); }
+    function wireSectionPersistence(){
+      const map = loadSecState();
+      document.querySelectorAll('details.sec').forEach(d=>{
+        const key = d.dataset.sec;
+        if (map[key]) d.setAttribute('open',''); else d.removeAttribute('open'); // default collapsed
+        d.addEventListener('toggle', ()=>{
+          const m = loadSecState();
+          m[key] = d.open ? true : false;
+          saveSecState(m);
+        });
+      });
+    }
+
+    // persist settings (local autosave stays)
     const KEY = 'hourglass.bake.settings.v5';
-    function saveSettings() {
+    function getFormDataObj() {
       const data = Object.fromEntries(new FormData(form).entries());
       for (const el of form.querySelectorAll('input[type=checkbox]')) data[el.name] = el.checked;
-      localStorage.setItem(KEY, JSON.stringify(data));
+      return data;
+    }
+    function saveSettings() {
+      localStorage.setItem(KEY, JSON.stringify(getFormDataObj()));
     }
     function loadSettings() {
       const raw = localStorage.getItem(KEY);
@@ -282,6 +370,7 @@
     }
     form.addEventListener('input', saveSettings);
     loadSettings();
+    wireSectionPersistence();
 
     function appendLog(kind, obj) {
       const t = new Date().toLocaleTimeString();
@@ -301,8 +390,7 @@
       prog.value = 0; pct.textContent = '0%'; fframe.textContent = '0'; ftarget.textContent = '0';
       logEl.textContent = '';
 
-      const data = Object.fromEntries(new FormData(form).entries());
-      for (const el of form.querySelectorAll('input[type=checkbox]')) data[el.name] = el.checked;
+      const data = getFormDataObj();
 
       const NUMS = [
         'duration','fps','grains','H','bulb','neck','r','k','wallThickness','tiltDeg','c1','c2','slat',
@@ -351,6 +439,119 @@
     }
 
     startBtn.addEventListener('click', startBake);
+
+    /* ---------- Presets (server-backed: public/presets.json) ---------- */
+    const presetSelect = $('#presetSelect');
+    const presetName   = $('#presetName');
+    const presetInfo   = $('#presetInfo');
+
+    async function apiGetPresets(){
+      const r = await fetch("/api/presets", { cache:"no-store" });
+      if (!r.ok) throw new Error("GET /api/presets " + r.status);
+      return await r.json(); // {version, items:[{name, settings}]}
+    }
+    async function apiGetPreset(name){
+      const r = await fetch("/api/preset/" + encodeURIComponent(name), { cache:"no-store" });
+      if (!r.ok) throw new Error("GET preset " + r.status);
+      return await r.json();
+    }
+    async function apiSavePreset(name, settings, overwrite){
+      const r = await fetch("/api/preset", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ name, settings, overwrite: !!overwrite })
+      });
+      if (r.status === 409) return { conflict:true };
+      if (!r.ok) throw new Error("POST /api/preset " + r.status);
+      return await r.json();
+    }
+    async function apiDeletePreset(name){
+      const r = await fetch("/api/preset/" + encodeURIComponent(name), { method:"DELETE" });
+      if (!r.ok) throw new Error("DELETE preset " + r.status);
+      return await r.json();
+    }
+
+    async function refreshPresetDropdown(){
+      presetSelect.innerHTML = "";
+      try{
+        const data = await apiGetPresets();
+        const names = (data.items||[]).map(it=>it.name).sort((a,b)=>a.localeCompare(b));
+        const opt0 = document.createElement("option"); opt0.value=""; opt0.textContent="— choose preset —";
+        presetSelect.appendChild(opt0);
+        for (const n of names) {
+          const o = document.createElement("option"); o.value=n; o.textContent=n; presetSelect.appendChild(o);
+        }
+        presetInfo.textContent = names.length ? `${names.length} preset(s)` : "no presets yet";
+      } catch (e) {
+        presetInfo.textContent = "presets unavailable (check server.js Presets API)";
+        appendLog('log', {level:'warn', msg:String(e)});
+      }
+    }
+
+    $('#savePreset').addEventListener('click', async () => {
+      const name = (presetName.value||"").trim();
+      if (!name) { alert("Give the preset a name."); return; }
+      const settings = getFormDataObj();
+      try{
+        const r = await apiSavePreset(name, settings, false);
+        if (r.conflict) {
+          if (confirm(`Preset "${name}" exists. Overwrite?`)) {
+            await apiSavePreset(name, settings, true);
+            appendLog('meta', {saved:name, overwrite:true});
+          } else return;
+        } else {
+          appendLog('meta', {saved:name});
+        }
+        await refreshPresetDropdown();
+        presetSelect.value = name;
+      } catch(e){ appendLog('log', {level:'err', msg:String(e)}); alert("Save failed."); }
+    });
+
+    $('#overwritePreset').addEventListener('click', async () => {
+      const name = (presetName.value||"").trim();
+      if (!name) { alert("Give the preset a name."); return; }
+      try{
+        await apiSavePreset(name, getFormDataObj(), true);
+        appendLog('meta', {saved:name, overwrite:true});
+        await refreshPresetDropdown();
+        presetSelect.value = name;
+      } catch(e){ appendLog('log', {level:'err', msg:String(e)}); alert("Overwrite failed."); }
+    });
+
+    $('#loadPreset').addEventListener('click', async () => {
+      const name = presetSelect.value;
+      if (!name) return;
+      try{
+        const p = await apiGetPreset(name);
+        if (p && p.settings) {
+          for (const k in p.settings) {
+            if (form[k] == null) continue;
+            if (form[k].type === 'checkbox') form[k].checked = !!p.settings[k];
+            else form[k].value = p.settings[k];
+          }
+          saveSettings();
+          appendLog('meta', {loaded:name});
+          presetName.value = name;
+        }
+      } catch(e){ appendLog('log', {level:'err', msg:String(e)}); alert("Load failed."); }
+    });
+
+    $('#deletePreset').addEventListener('click', async () => {
+      const name = presetSelect.value;
+      if (!name) return;
+      if (!confirm(`Delete preset "${name}"?`)) return;
+      try{
+        await apiDeletePreset(name);
+        appendLog('meta', {deleted:name});
+        presetName.value = "";
+        await refreshPresetDropdown();
+      } catch(e){ appendLog('log', {level:'err', msg:String(e)}); alert("Delete failed."); }
+    });
+
+    presetSelect.addEventListener('change', () => { presetName.value = presetSelect.value || ""; });
+
+    // init
+    refreshPresetDropdown();
   </script>
 </body>
 </html>
