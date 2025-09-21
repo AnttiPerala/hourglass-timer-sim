@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "duration": 60,
+    "fps": 30,
+    "grains": 4000,
+    "full": 1,
+    "neck": 11,
+    "H": 500,
+    "bulb": 220,
+    "r": 4,
+    "bounce": 0.8,
+    "friction": 0.02,
+    "tiltDeg": 0,
+    "slat": 0,
+    "c1": 0.8,
+    "c2": 0,
+    "Q": 32,
+    "mode": "sparse",
+    "wallMode": "capsule",
+    "wallThickness": 10,
+    "sleepOnlyBelowFrac": 0.58,
+    "neckNoSleepBandPx": 80,
+    "bottomSleepBandPx": 175,
+    "outsideKillPad": 0.5,
+    "outsideCullFrames": 2,
+    "hardKillPad": 0.2,
+    "strictKillPad": 0.15
+  },
+  "frames": 1965,
+  "fps": 30,
+  "lastCrossFrame": 1800,
+  "sbin": "export_1758495230899.sbin"
+}
