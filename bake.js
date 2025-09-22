@@ -2,6 +2,7 @@
 import fs from "fs";
 import path from "path";
 import Matter from "matter-js";
+import zlib from "zlib";
 const { Engine, World, Bodies, Body, Composite, Runner, Sleeping } = Matter;
 
 /* -------------------- args -------------------- */
@@ -492,7 +493,7 @@ function finalizeAndWrite() {
     },
     frames, fps,
     lastCrossFrame: lastCrossFrame ?? null,
-    ...(outputMode === "dense" ? { bin: `/bakes/${nameBase}.bin` } : { sbin: `/bakes/${nameBase}.sbin` })
+    ...(outputMode === "dense" ? { binGz: `bakes/${nameBase}.bin.gz` } : { sbinGz: `bakes/${nameBase}.sbin.gz` })
   };
   fs.writeFileSync(jsonPath, JSON.stringify(json, null, 2), "utf-8");
 
@@ -517,7 +518,13 @@ function loop() {
   done = true;
 
   if (outputMode === "dense") {
-    binStream.end(() => finalizeAndWrite());
+    binStream.end(() => {
+      const raw = fs.readFileSync(path.join(outDir, `${nameBase}.bin`));
+      const gz  = zlib.gzipSync(raw, { level: 9 });
+      fs.writeFileSync(path.join(outDir, `${nameBase}.bin.gz`), gz);
+      try { fs.unlinkSync(path.join(outDir, `${nameBase}.bin`)); } catch {}
+      finalizeAndWrite();
+    });
   } else {
     // Patch frames field (offset 10) after stream closes — Linux/Windows safe
     sbinStream.end(() => {
@@ -525,6 +532,10 @@ function loop() {
       const buf = Buffer.allocUnsafe(4); buf.writeUInt32LE(frames, 0);
       fs.writeSync(fd, buf, 0, 4, 10);
       fs.closeSync(fd);
+      const raw = fs.readFileSync(path.join(outDir, `${nameBase}.sbin`));
+      const gz  = zlib.gzipSync(raw, { level: 9 });
+      fs.writeFileSync(path.join(outDir, `${nameBase}.sbin.gz`), gz);
+      try { fs.unlinkSync(path.join(outDir, `${nameBase}.sbin`)); } catch {}
       finalizeAndWrite();
     });
   }

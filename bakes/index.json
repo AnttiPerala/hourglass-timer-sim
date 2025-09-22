@@ -1,5 +1,78 @@
 [
   {
+    "file": "bakes/hourglass_60s_neck4_g222_capsule_sparse_Q32_mfvpg3um-srgdas.json",
+    "label": "hourglass_60s_neck4_g222_capsule_sparse_Q32_mfvpg3um-srgdas",
+    "duration": 60,
+    "fps": 60,
+    "grains": 222,
+    "neck": 4,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 132,
+    "date": "2025-09-22T22:35:45.828Z"
+  },
+  {
+    "file": "bakes/hourglass_60s_neck4_g222_capsule_sparse_Q32_mfvohscd-dgh3dg.json",
+    "label": "hourglass_60s_neck4_g222_capsule_sparse_Q32_mfvohscd-dgh3dg",
+    "duration": 60,
+    "fps": 60,
+    "grains": 222,
+    "neck": 4,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 121,
+    "date": "2025-09-22T22:09:05.743Z"
+  },
+  {
+    "file": "bakes/hourglass_60s_neck4_g16000_capsule_sparse_Q32_mfvo293z-nm3igo.json",
+    "label": "hourglass_60s_neck4_g16000_capsule_sparse_Q32_mfvo293z-nm3igo",
+    "duration": 60,
+    "fps": 60,
+    "grains": 16000,
+    "neck": 4,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 170,
+    "date": "2025-09-22T22:06:05.664Z"
+  },
+  {
+    "file": "bakes/hourglass_60s_neck5_g8000_capsule_sparse_Q32_mfvmsr9m-gxvbh4.json",
+    "label": "hourglass_60s_neck5_g8000_capsule_sparse_Q32_mfvmsr9m-gxvbh4",
+    "duration": 60,
+    "fps": 60,
+    "grains": 8000,
+    "neck": 5,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 152,
+    "date": "2025-09-22T21:29:13.844Z"
+  },
+  {
+    "file": "bakes/hourglass_60s_neck5_g8000_capsule_sparse_Q32_mfvlp0m1-03nlbs.json",
+    "label": "hourglass_60s_neck5_g8000_capsule_sparse_Q32_mfvlp0m1-03nlbs",
+    "duration": 60,
+    "fps": 60,
+    "grains": 8000,
+    "neck": 5,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 155,
+    "date": "2025-09-22T20:56:39.211Z",
+    "naturalSec": 2.5833333333333335
+  },
+  {
+    "file": "bakes/hourglass_600s_neck5_g8000_capsule_sparse_Q32_mfvjgb8g-1bxw75.json",
+    "label": "hourglass_600s_neck5_g8000_capsule_sparse_Q32_mfvjgb8g-1bxw75",
+    "duration": 600,
+    "fps": 60,
+    "grains": 8000,
+    "neck": 5,
+    "c1": 0.8,
+    "c2": 0,
+    "lastCrossFrame": 160,
+    "date": "2025-09-22T20:16:12.604Z"
+  },
+  {
     "file": "bakes/hourglass_60s_neck11_g4000_capsule_sparse_Q32_mfu8x3wi-yivsuf.json",
     "label": "hourglass_60s_neck11_g4000_capsule_sparse_Q32_mfu8x3wi-yivsuf",
     "duration": 60,

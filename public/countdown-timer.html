@@ -1,0 +1,196 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hourglass Countdown</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { --bg:#0b0d10; --ink:#eaeaef; --sub:#98a6be; --line:#2a3444; --accent:#1d6fff; }
+    html, body { height:100%; }
+    body { margin:0; background:var(--bg); color:var(--ink); font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Arial, sans-serif; }
+    header { padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; position:sticky; top:0; background:var(--bg); z-index:2; }
+    header h1 { font-size:16px; margin:0; }
+    .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    select, button, input[type=color] { background:#0f151e; color:var(--ink); border:1px solid #273446; border-radius:8px; padding:8px 10px; }
+    button.primary { background:var(--accent); color:white; border:none; }
+    main { display:grid; grid-template-columns: 1fr; gap:14px; padding:12px; }
+    #info { color:var(--sub); }
+    #stage { display:grid; grid-template-rows: auto 1fr; gap:10px; justify-items:center; }
+    iframe { width: min(1200px, 96vw); height: calc(min(1200px,96vw)*1.2); border:1px solid #1d2330; background:#06080b; border-radius:12px; }
+    .pill { background:#121a25; border:1px solid #223042; padding:4px 8px; border-radius:999px; font-size:12px; }
+    .muted { color:var(--sub); }
+    /* Big digital clock */
+    #clock { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+             font-weight: 700; font-size: clamp(40px, 12vw, 140px); letter-spacing: 2px;
+             line-height: 1; color: #e0f2ff; text-shadow: 0 0 12px rgba(29,111,255,0.4);
+             margin: 6px 0 2px; }
+    #clock.small { font-size: clamp(32px, 8vw, 90px); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Hourglass Countdown</h1>
+    <div class="row">
+      <label for="minutes">Duration:</label>
+      <select id="minutes" title="Choose minutes (1–10)"></select>
+      <label for="grain">Grain color:</label>
+      <input id="grain" type="color" value="#f1f4ff" title="Pick the sand color">
+      <button id="start" class="primary">Start</button>
+      <span id="status" class="pill">Loading bakes…</span>
+    </div>
+    <div id="info" class="row"></div>
+  </header>
+  <main>
+    <div id="stage">
+      <div id="clock">00:00</div>
+      <div class="row muted" id="choiceRow"></div>
+      <iframe id="player" src="about:blank" allowfullscreen></iframe>
+    </div>
+  </main>
+
+<script>
+(function(){
+  const minutesSel = document.getElementById('minutes');
+  const startBtn = document.getElementById('start');
+  const statusEl = document.getElementById('status');
+  const infoEl = document.getElementById('info');
+  const iframe = document.getElementById('player');
+  const choiceRow = document.getElementById('choiceRow');
+  const clockEl = document.getElementById('clock');
+  const grainPicker = document.getElementById('grain');
+
+  // Fill minutes options 1..10
+  for (let m=1; m<=10; m++) {
+    const opt = document.createElement('option');
+    opt.value = String(m);
+    opt.textContent = m + ' min';
+    if (m === 5) opt.selected = true;
+    minutesSel.appendChild(opt);
+  }
+
+  let index = null; // array of { file, label, duration, fps, lastCrossFrame, naturalSec, ...}
+  let countdownTimer = null;
+  let countdownEndAt = 0;
+
+  async function loadIndex(){
+    const res = await fetch('/bakes/index.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('index.json not found at /bakes/index.json');
+    index = await res.json();
+    if (!Array.isArray(index) || index.length === 0) throw new Error('index.json is empty');
+  }
+
+  function naturalSeconds(entry){
+    if (Number.isFinite(entry.naturalSec) && entry.naturalSec > 0) return entry.naturalSec;
+    const fps = entry.fps || 60;
+    const endFrame = Number.isFinite(entry.lastCrossFrame) && entry.lastCrossFrame>0
+      ? entry.lastCrossFrame
+      : (entry.frames || Math.round((entry.duration||0)*fps));
+    if (!endFrame) return (entry.duration || 0);
+    return endFrame / fps;
+  }
+
+  function pickBest(desiredSec){
+    let best = null, bestDiff = Infinity;
+    for (const e of index){
+      const s = naturalSeconds(e);
+      if (!Number.isFinite(s) || s<=0) continue;
+      const d = Math.abs(s - desiredSec);
+      if (d < bestDiff){ best = e; bestDiff = d; }
+    }
+    return best;
+  }
+
+  function fmtClock(totalSeconds){
+    const s = Math.max(0, Math.ceil(totalSeconds));
+    const m = Math.floor(s/60);
+    const sec = s - m*60;
+    return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+  }
+
+  function startClock(seconds){
+    if (countdownTimer) cancelAnimationFrame(countdownTimer);
+    const start = performance.now();
+    countdownEndAt = start + seconds*1000;
+    function tick(now){
+      const leftMs = Math.max(0, countdownEndAt - now);
+      const left = leftMs/1000;
+      clockEl.textContent = fmtClock(left);
+      if (leftMs <= 0) { return; }
+      countdownTimer = requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function setPlayerGrainColor(hex){
+    try {
+      const doc = iframe.contentDocument;
+      const grainInput = doc && doc.getElementById('grainColor');
+      if (grainInput){
+        grainInput.value = hex;
+        grainInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    } catch (e) { /* ignore cross-origin or race */ }
+  }
+
+  grainPicker.addEventListener('input', () => setPlayerGrainColor(grainPicker.value));
+
+  async function begin(){
+    try{
+      if (!index) await loadIndex();
+      statusEl.textContent = 'Bakes loaded';
+      const desiredMin = Number(minutesSel.value);
+      const desiredSec = desiredMin * 60;
+
+      const best = pickBest(desiredSec);
+      if (!best) throw new Error('No suitable bakes');
+      const nat = naturalSeconds(best);
+
+      choiceRow.textContent = '';
+      const label = best.label || best.file.split('/').pop();
+      const pills = [
+        ['Chosen', label],
+        ['Natural', (Math.round(nat)) + ' s'],
+        ['Target', (desiredSec) + ' s'],
+        ['Speed', (nat/desiredSec).toFixed(3) + '×']
+      ];
+      for (const [k,v] of pills){
+        const span = document.createElement('span'); span.className='pill'; span.textContent = k+': '+v; choiceRow.append(span);
+      }
+
+      const bakeURL = best.file.startsWith('/') ? best.file : '/' + best.file.replace(/^\.?\/?/,'');
+      iframe.src = '/player.html?bake=' + encodeURIComponent(bakeURL);
+
+      // When the player is ready, set grain color & align, then start playback
+      iframe.onload = () => {
+        try {
+          const doc = iframe.contentDocument;
+          const alignInp = doc.getElementById('alignSec');
+          const playBtn = doc.getElementById('play');
+          // apply color
+          setPlayerGrainColor(grainPicker.value);
+          if (alignInp) {
+            alignInp.value = String(desiredSec);
+            alignInp.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          if (playBtn) playBtn.click();
+          statusEl.textContent = 'Running…';
+          infoEl.textContent = 'Aligned so the last grain falls at exactly ' + desiredSec + ' seconds.';
+          // Start big clock countdown in the shell, independent of player
+          startClock(desiredSec);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+    } catch (e) {
+      statusEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  startBtn.addEventListener('click', begin);
+  // Auto-begin on load with default minutes
+  window.addEventListener('load', begin);
+})();
+</script>
+
+</body>
+</html>
