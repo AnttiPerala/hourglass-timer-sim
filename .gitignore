@@ -1,2 +1,3 @@
 *.sbin
 /bakes
+/public/bakes
